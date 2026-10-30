@@ -40,7 +40,7 @@ func _process(delta: float) -> void:
     if autofire:
         fire_clock -= delta
         if fire_clock <= 0.0:
-            fire_clock = 1.8 if selected_spell == 3 else fire_interval
+            fire_clock = 5.2 if selected_spell == 3 else fire_interval
             shoot()
     var spell_name := _spell_name()
     if selected_spell == 3:
@@ -54,7 +54,7 @@ func _process(delta: float) -> void:
         ]
     queue_redraw()
 
-func shoot() -> void:
+func shoot(replace_hole: bool = false) -> void:
     var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size()
     if active_count >= 50:
         return
@@ -78,14 +78,17 @@ func shoot() -> void:
         moon.struck.connect(_on_moon_struck)
         moon.returned.connect(_on_moon_returned)
     else:
-        # Test-Room 전용: 병합 없이 서로 떨어진 최대 3개 개체로 시각 실험.
-        if get_tree().get_nodes_in_group("vfx_hole").size() >= 3:
-            return
-        var spawn_at := _find_black_hole_spawn()
-        if spawn_at.x < 0.0:
-            return
+        # 이펙트 평가 중에는 블랙홀 한 개에만 집중한다.
+        # 자동 발사는 기존 개체가 소멸할 때까지 기다리고, 수동 발사는 위치를 바꿔 다시 소환한다.
+        var active_holes := get_tree().get_nodes_in_group("vfx_hole")
+        if not active_holes.is_empty():
+            if not replace_hole:
+                return
+            for old_hole in active_holes:
+                old_hole.remove_from_group("vfx_hole")
+                old_hole.queue_free()
         var hole = BLACK_HOLE_SCRIPT.new()
-        hole.configure(spawn_at, START_POINT, particle_multiplier, black_hole_rank)
+        hole.configure(target_point, START_POINT, particle_multiplier, black_hole_rank)
         add_child(hole)
         hole.add_to_group("vfx_hole")
         hole.pulsed.connect(_on_black_hole_pulse)
@@ -125,31 +128,6 @@ func _on_black_hole_pulse(_point: Vector2, _radius: float) -> void:
 func _on_black_hole_vanished(_point: Vector2) -> void:
     black_hole_finished += 1
 
-func _find_black_hole_spawn() -> Vector2:
-    # 배치 정책은 본게임에 적용하지 않는다. 겹침 없이 이펙트만 비교하기 위한 고정 실험 좌표.
-    var existing := get_tree().get_nodes_in_group("vfx_hole")
-    var offsets := [
-        Vector2.ZERO,
-        Vector2(-400.0, -250.0), Vector2(-400.0, 250.0),
-        Vector2(400.0, -250.0), Vector2(400.0, 250.0),
-        Vector2(0.0, -380.0), Vector2(0.0, 380.0)
-    ]
-    var best := Vector2(-1.0, -1.0)
-    var best_gap := -1.0
-    for offset in offsets:
-        var candidate: Vector2 = (target_point + offset).clamp(Vector2(220.0, 255.0), Vector2(1380.0, 720.0))
-        var nearest := INF
-        for node in existing:
-            var hole_node := node as Node2D
-            if hole_node != null:
-                nearest = minf(nearest, candidate.distance_to(hole_node.global_position))
-        if nearest > best_gap:
-            best_gap = nearest
-            best = candidate
-    if not existing.is_empty() and best_gap < 335.0:
-        return Vector2(-1.0, -1.0)
-    return best
-
 func _spell_name() -> String:
     match selected_spell:
         0: return "별빛탄"
@@ -162,9 +140,9 @@ func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventMouseButton and event.pressed:
         if event.button_index == MOUSE_BUTTON_LEFT:
             target_point = get_global_mouse_position().clamp(Vector2(185, 230), SCREEN_SIZE - Vector2(185, 170))
-            shoot()
+            shoot(true)
         elif event.button_index == MOUSE_BUTTON_RIGHT:
-            shoot()
+            shoot(true)
         queue_redraw()
     if event is InputEventKey and event.pressed and not event.echo:
         match event.keycode:
@@ -191,7 +169,7 @@ func _unhandled_input(event: InputEvent) -> void:
                 elif selected_spell == 1:
                     bloom_rank = mini(3, bloom_rank + 1)
             KEY_SPACE:
-                shoot()
+                shoot(true)
             KEY_R:
                 autofire = not autofire
             KEY_UP, KEY_EQUAL, KEY_KP_ADD:
@@ -223,15 +201,17 @@ func _draw() -> void:
     draw_circle(START_POINT, 9.0, Color("eee2ff"))
     draw_arc(START_POINT, 40.0, 0.0, TAU, 48, Color("d9bbff"), 2.0)
 
-    draw_circle(target_point + Vector2(0, 25), 38.0, Color(0, 0, 0, 0.26))
-    draw_circle(target_point, 38.0, Color("554f67"))
-    draw_circle(target_point, 29.0, Color("c48eaa"))
-    draw_circle(target_point, 19.0, Color("e6b0c2"))
-    draw_arc(target_point, 43.0, 0.0, TAU, 48, Color("d9a2b8"), 2.0)
-    if selected_spell == 1:
-        draw_arc(target_point, BLOOM_RADII[bloom_rank], 0.0, TAU, 64, Color(1.0, 0.65, 0.75, 0.28), 1.5, true)
-    elif selected_spell == 3:
-        draw_arc(target_point, 76.0, 0.0, TAU, 64, Color(0.75, 0.61, 1.0, 0.29), 1.5, true)
+    if selected_spell != 3:
+        draw_circle(target_point + Vector2(0, 25), 38.0, Color(0, 0, 0, 0.26))
+        draw_circle(target_point, 38.0, Color("554f67"))
+        draw_circle(target_point, 29.0, Color("c48eaa"))
+        draw_circle(target_point, 19.0, Color("e6b0c2"))
+        draw_arc(target_point, 43.0, 0.0, TAU, 48, Color("d9a2b8"), 2.0)
+        if selected_spell == 1:
+            draw_arc(target_point, BLOOM_RADII[bloom_rank], 0.0, TAU, 64, Color(1.0, 0.65, 0.75, 0.28), 1.5, true)
+    else:
+        # 보라색 표적 원이 블랙홀 원반과 겹쳐 보이지 않도록 작은 조준점만 표시.
+        draw_arc(target_point, 8.0, 0.0, TAU, 24, Color(0.58, 0.80, 0.77, 0.28), 1.5, true)
 
 func _create_hud() -> void:
     var layer := CanvasLayer.new()
