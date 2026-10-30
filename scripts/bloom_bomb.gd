@@ -6,7 +6,6 @@ signal impacted(at: Vector2, radius: float)
 
 const CORE_TEXTURE: Texture2D = preload("res://assets/꽃탄.png")
 const PETAL_TEXTURE: Texture2D = preload("res://assets/꽃.png")
-const SPARK_TEXTURE: Texture2D = preload("res://assets/spark.png")
 const SPEED := 455.0
 const MAX_LIFETIME := 2.6
 const CORE_DIAMETER := 84.0
@@ -46,14 +45,15 @@ func _process(delta: float) -> void:
     while emission_carry >= 1.0 and motes.size() < MAX_PARTICLES:
         emission_carry -= 1.0
         var life := randf_range(0.24, 0.62)
-        var petal := randf() < 0.55
+        var roll := randf()
+        var kind := 0 if roll < 0.52 else (1 if roll < 0.83 else 2)
         motes.append({
-            "petal": petal,
+            "kind": kind,
             "pos": global_position - heading * randf_range(14.0, 37.0) + heading.orthogonal() * randf_range(-17.0, 17.0),
             "vel": -heading * randf_range(25.0, 75.0) + heading.orthogonal() * randf_range(-60.0, 60.0),
             "life": life,
             "total": life,
-            "size": randf_range(13.0, 23.0) if petal else randf_range(3.0, 8.0),
+            "size": randf_range(13.0, 24.0) if kind == 0 else randf_range(4.0, 9.0),
             "angle": randf_range(0.0, TAU),
             "spin": randf_range(-5.0, 5.0)
         })
@@ -78,12 +78,17 @@ func _draw() -> void:
         var fade := clampf(float(mote["life"]) / float(mote["total"]), 0.0, 1.0)
         var local_pos := to_local(Vector2(mote["pos"]))
         var size := float(mote["size"]) * (0.35 + fade * 0.65)
-        if bool(mote["petal"]):
-            draw_set_transform(local_pos, float(mote["angle"]), Vector2.ONE)
-            draw_texture_rect(PETAL_TEXTURE, Rect2(Vector2(-size * 0.5, -size * 0.5), Vector2(size, size)), false, Color(1.0, 1.0, 1.0, fade * 0.87))
-            draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-        else:
-            draw_texture_rect(SPARK_TEXTURE, Rect2(local_pos - Vector2.ONE * size, Vector2.ONE * size * 2.0), false, Color(1.0, 0.90, 0.72, fade * 0.83))
+        match int(mote["kind"]):
+            0:
+                draw_set_transform(local_pos, float(mote["angle"]), Vector2.ONE)
+                draw_texture_rect(PETAL_TEXTURE, Rect2(-Vector2.ONE * size * 0.5, Vector2.ONE * size), false, Color(1.0, 1.0, 1.0, fade * 0.90))
+                draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+            1:
+                draw_circle(local_pos, size * 0.64, Color(1.0, 0.61, 0.75, fade * 0.16))
+                draw_circle(local_pos, size * 0.31, Color(1.0, 0.78, 0.84, fade * 0.76))
+                draw_circle(local_pos, size * 0.13, Color(1.0, 0.98, 0.85, fade * 0.95))
+            2:
+                _draw_diamond(local_pos, size * 0.88, float(mote["angle"]), Color(1.0, 0.86, 0.77, fade * 0.86))
 
     draw_circle(Vector2.ZERO, 49.0, Color(1.0, 0.55, 0.65, 0.095))
     draw_circle(Vector2.ZERO, 30.0, Color(1.0, 0.92, 0.76, 0.055))
@@ -92,3 +97,15 @@ func _draw() -> void:
     draw_set_transform(Vector2.ZERO, elapsed * 1.45, Vector2.ONE)
     draw_texture_rect(CORE_TEXTURE, Rect2(-Vector2.ONE * diameter * 0.5, Vector2.ONE * diameter), false)
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_diamond(at: Vector2, radius: float, angle: float, tint: Color) -> void:
+    var polygon := PackedVector2Array([
+        Vector2(0.0, -radius * 1.35),
+        Vector2(radius * 0.62, 0.0),
+        Vector2(0.0, radius * 1.35),
+        Vector2(-radius * 0.62, 0.0)
+    ])
+    for i in polygon.size():
+        polygon[i] = at + polygon[i].rotated(angle)
+    draw_colored_polygon(polygon, tint)
+    draw_circle(at, radius * 0.15, Color(1.0, 1.0, 0.95, tint.a))
