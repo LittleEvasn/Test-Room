@@ -3,7 +3,6 @@ extends Node2D
 ## 충격파는 VFX 실험실에 설정된 폭발 반경까지 확장된다.
 
 const PETAL_TEXTURE: Texture2D = preload("res://assets/꽃.png")
-const SPARK_TEXTURE: Texture2D = preload("res://assets/spark.png")
 const DURATION := 0.62
 
 var elapsed := 0.0
@@ -34,8 +33,10 @@ func _ready() -> void:
     for i in spark_count:
         var theta := randf_range(0.0, TAU)
         sparks.append({
-            "vel": Vector2.RIGHT.rotated(theta) * randf_range(65.0, 230.0),
-            "size": randf_range(3.0, 7.0)
+            "vel": Vector2.RIGHT.rotated(theta) * randf_range(80.0, 235.0),
+            "size": randf_range(3.0, 8.0),
+            "kind": i % 3,
+            "angle": randf_range(0.0, TAU)
         })
     queue_redraw()
 
@@ -81,8 +82,30 @@ func _draw() -> void:
     for spark in sparks:
         var pt := Vector2(spark["vel"]) * elapsed * (1.0 - 0.25 * progress)
         var size := float(spark["size"]) * (0.45 + 0.55 * (1.0 - progress))
-        draw_texture_rect(SPARK_TEXTURE, Rect2(pt - Vector2.ONE * size, Vector2.ONE * size * 2.0), false, Color(1.0, 0.94, 0.74, 0.9 * (1.0 - progress)))
+        var sparkle_alpha := pow(1.0 - progress, 1.4)
+        match int(spark["kind"]):
+            0:
+                draw_circle(pt, size * 0.78, Color(1.0, 0.53, 0.70, sparkle_alpha * 0.18))
+                draw_circle(pt, size * 0.36, Color(1.0, 0.79, 0.87, sparkle_alpha * 0.86))
+                draw_circle(pt, size * 0.15, Color(1.0, 0.97, 0.82, sparkle_alpha))
+            1:
+                _draw_bloom_diamond(pt, size, float(spark["angle"]) + elapsed * 4.5, Color(1.0, 0.90, 0.74, sparkle_alpha * 0.84))
+            2:
+                var ray := Vector2.RIGHT.rotated(float(spark["angle"]))
+                draw_line(pt - ray * size * 1.5, pt + ray * size * 1.5, Color(1.0, 0.82, 0.86, sparkle_alpha * 0.81), maxf(1.0, size * 0.23), true)
+                draw_line(pt - ray.orthogonal() * size, pt + ray.orthogonal() * size, Color(1.0, 0.92, 0.80, sparkle_alpha * 0.64), maxf(1.0, size * 0.18), true)
 
     var flash := 1.0 - smoothstep(0.0, 0.13, elapsed)
     draw_circle(Vector2.ZERO, blast_radius * 0.16 * (1.0 + open * 0.4), Color(1.0, 0.97, 0.87, 0.85 * flash))
     draw_circle(Vector2.ZERO, blast_radius * 0.075, Color(1.0, 1.0, 1.0, 0.93 * flash))
+
+func _draw_bloom_diamond(at: Vector2, radius: float, angle: float, tint: Color) -> void:
+    var polygon := PackedVector2Array([
+        Vector2(0.0, -radius * 1.4),
+        Vector2(radius * 0.65, 0.0),
+        Vector2(0.0, radius * 1.4),
+        Vector2(-radius * 0.65, 0.0)
+    ])
+    for i in polygon.size():
+        polygon[i] = at + polygon[i].rotated(angle)
+    draw_colored_polygon(polygon, tint)
