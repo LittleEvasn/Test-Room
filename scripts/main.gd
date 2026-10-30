@@ -5,6 +5,8 @@ const BOLT_SCRIPT = preload("res://scripts/star_bolt.gd")
 const IMPACT_SCRIPT = preload("res://scripts/impact_burst.gd")
 const BLOOM_SCRIPT = preload("res://scripts/bloom_bomb.gd")
 const BLOOM_BURST_SCRIPT = preload("res://scripts/bloom_burst.gd")
+const MOON_SCRIPT = preload("res://scripts/moon_boomerang.gd")
+const MOON_HIT_SCRIPT = preload("res://scripts/moon_hit_burst.gd")
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -18,7 +20,7 @@ var fire_clock := 0.2
 var particle_multiplier := 1.0
 var fired_count := 0
 var impact_count := 0
-var selected_spell := 0 # 0 = 별빛탄, 1 = 꽃폭탄
+var selected_spell := 0 # 0 = 별빛탄, 1 = 꽃폭탄, 2 = 달빛 부메랑
 var bloom_rank := 0
 
 var title_label: Label
@@ -36,15 +38,15 @@ func _process(delta: float) -> void:
         if fire_clock <= 0.0:
             fire_clock = fire_interval
             shoot()
-    var spell_name := "별빛탄" if selected_spell == 0 else "꽃폭탄"
-    var rank_str := "" if selected_spell == 0 else "  |  꽃폭탄 +%d (폭발 반경 %.0f)" % [bloom_rank, BLOOM_RADII[bloom_rank]]
+    var spell_name := "별빛탄" if selected_spell == 0 else ("꽃폭탄" if selected_spell == 1 else "달빛 부메랑")
+    var rank_str := "" if selected_spell != 1 else "  |  꽃폭탄 +%d (폭발 반경 %.0f)" % [bloom_rank, BLOOM_RADII[bloom_rank]]
     status_label.text = "선택 %s%s  |  발사 %d  명중 %d  |  파티클 %.1fx  |  자동 %s" % [
         spell_name, rank_str, fired_count, impact_count, particle_multiplier, "ON" if autofire else "OFF"
     ]
     queue_redraw()
 
 func shoot() -> void:
-    var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size()
+    var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size()
     if active_count >= 50:
         return
     if selected_spell == 0:
@@ -53,12 +55,19 @@ func shoot() -> void:
         add_child(bolt)
         bolt.add_to_group("vfx_bolt")
         bolt.impacted.connect(_on_bolt_impact)
-    else:
+    elif selected_spell == 1:
         var bomb = BLOOM_SCRIPT.new()
         bomb.configure(START_POINT, target_point, particle_multiplier, BLOOM_RADII[bloom_rank])
         add_child(bomb)
         bomb.add_to_group("vfx_bloom")
         bomb.impacted.connect(_on_bloom_impact.bind(bloom_rank))
+    else:
+        var moon = MOON_SCRIPT.new()
+        moon.configure(START_POINT, target_point, particle_multiplier)
+        add_child(moon)
+        moon.add_to_group("vfx_moon")
+        moon.struck.connect(_on_moon_struck)
+        moon.returned.connect(_on_moon_returned)
     fired_count += 1
 
 func _on_bolt_impact(point: Vector2) -> void:
@@ -73,6 +82,19 @@ func _on_bloom_impact(point: Vector2, radius: float, cast_rank: int) -> void:
     burst.global_position = point
     burst.configure(radius, particle_multiplier, cast_rank)
     add_child(burst)
+
+func _on_moon_struck(point: Vector2) -> void:
+    impact_count += 1
+    var flash = MOON_HIT_SCRIPT.new()
+    flash.global_position = point
+    flash.configure(false)
+    add_child(flash)
+
+func _on_moon_returned(point: Vector2) -> void:
+    var flash = MOON_HIT_SCRIPT.new()
+    flash.global_position = point
+    flash.configure(true)
+    add_child(flash)
 
 func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventMouseButton and event.pressed:
@@ -90,6 +112,9 @@ func _unhandled_input(event: InputEvent) -> void:
             KEY_2, KEY_KP_2:
                 selected_spell = 1
                 _update_title()
+            KEY_3, KEY_KP_3:
+                selected_spell = 2
+                _update_title()
             KEY_Q:
                 bloom_rank = maxi(0, bloom_rank - 1)
             KEY_E:
@@ -103,7 +128,7 @@ func _unhandled_input(event: InputEvent) -> void:
             KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
                 particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
             KEY_C:
-                for group_name in ["vfx_bolt", "vfx_bloom"]:
+                for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon"]:
                     for projectile in get_tree().get_nodes_in_group(group_name):
                         projectile.queue_free()
                 # 이미 생성된 폭발은 자연스럽게 사라진다.
@@ -117,7 +142,7 @@ func _draw() -> void:
     for y in range(140, 901, 80):
         draw_line(Vector2(0, y), Vector2(1600, y), Color(0.62, 0.70, 0.9, 0.065), 1.0)
 
-    var aiming_color := Color("ffd98e") if selected_spell == 0 else Color("f4a6c4")
+    var aiming_color := Color("ffd98e") if selected_spell == 0 else (Color("f4a6c4") if selected_spell == 1 else Color("c6b7ff"))
     draw_line(START_POINT, target_point, Color(aiming_color, 0.09), 2.0)
     draw_circle(START_POINT + Vector2(0, 22), 35.0, Color(0, 0, 0, 0.24))
     draw_circle(START_POINT, 32.0, Color("6d658b"))
@@ -150,7 +175,7 @@ func _create_hud() -> void:
     _update_title()
 
     info_label = Label.new()
-    info_label.text = "1 별빛탄 / 2 꽃폭탄  |  Q/E 꽃폭탄 강화  |  클릭 표적·발사  |  SPACE 발사  |  R 자동  |  ↑/↓ 입자  |  C 초기화"
+    info_label.text = "1 별빛탄 / 2 꽃폭탄 / 3 달빛 부메랑  |  Q/E 꽃 강화  |  클릭 표적·발사  |  SPACE 발사  |  R 자동  |  ↑/↓ 입자  |  C 초기화"
     info_label.position = Vector2(36, 66)
     info_label.add_theme_font_size_override("font_size", 17)
     info_label.add_theme_color_override("font_color", Color("c9d0e0"))
@@ -163,4 +188,4 @@ func _create_hud() -> void:
     layer.add_child(status_label)
 
 func _update_title() -> void:
-    title_label.text = "WITCHLINGS / MAGIC VFX LAB     %s" % ("별빛탄" if selected_spell == 0 else "꽃폭탄")
+    title_label.text = "WITCHLINGS / MAGIC VFX LAB     %s" % ("별빛탄" if selected_spell == 0 else ("꽃폭탄" if selected_spell == 1 else "달빛 부메랑"))
