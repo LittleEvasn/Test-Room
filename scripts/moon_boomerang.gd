@@ -6,12 +6,11 @@ signal struck(at: Vector2)
 signal returned(at: Vector2)
 
 const MOON_TEXTURE: Texture2D = preload("res://assets/달빛 부메랑.png")
-const SPARK_TEXTURE: Texture2D = preload("res://assets/spark.png")
 const OUTBOUND_TIME := 0.84
 const RETURN_TIME := 0.70
 const IMAGE_DIAMETER := 96.0
 const MAX_TRAIL := 18
-const MAX_MOTES := 70
+const MAX_MOTES := 96
 
 var origin := Vector2.ZERO
 var destination := Vector2.ZERO
@@ -81,18 +80,24 @@ func _advance_motes(delta: float) -> void:
             motes.remove_at(i)
         else:
             mote["pos"] = Vector2(mote["pos"]) + Vector2(mote["vel"]) * delta
+            mote["angle"] = float(mote["angle"]) + float(mote["spin"]) * delta
 
 func _emit_motes(delta: float) -> void:
-    emission_carry = minf(4.0, emission_carry + delta * 35.0 * emission_density)
+    emission_carry = minf(4.0, emission_carry + delta * 43.0 * emission_density)
     while emission_carry >= 1.0 and motes.size() < MAX_MOTES:
         emission_carry -= 1.0
-        var life := randf_range(0.20, 0.43)
+        var life := randf_range(0.24, 0.52)
+        var roll := randf()
+        var kind := 0 if roll < 0.36 else (1 if roll < 0.64 else (2 if roll < 0.87 else 3))
         motes.append({
-            "pos": global_position + Vector2(randf_range(-12.0, 12.0), randf_range(-12.0, 12.0)),
-            "vel": Vector2(randf_range(-65.0, 65.0), randf_range(-65.0, 65.0)),
+            "pos": global_position + Vector2(randf_range(-17.0, 17.0), randf_range(-17.0, 17.0)),
+            "vel": Vector2(randf_range(-75.0, 75.0), randf_range(-75.0, 75.0)),
             "life": life,
             "total": life,
-            "size": randf_range(3.0, 8.0)
+            "size": randf_range(4.0, 10.0),
+            "kind": kind,
+            "angle": randf_range(0.0, TAU),
+            "spin": randf_range(-4.0, 4.0)
         })
 
 func _draw() -> void:
@@ -106,7 +111,7 @@ func _draw() -> void:
             MOON_TEXTURE,
             Rect2(-Vector2.ONE * diameter * 0.5, Vector2.ONE * diameter),
             false,
-            Color(0.73, 0.66, 1.0, fraction * 0.24)
+            Color(0.79, 0.71, 1.0, fraction * 0.31)
         )
         draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -114,12 +119,18 @@ func _draw() -> void:
         var fade := clampf(float(mote["life"]) / float(mote["total"]), 0.0, 1.0)
         var local_pos := to_local(Vector2(mote["pos"]))
         var radius := float(mote["size"]) * (0.4 + fade * 0.6)
-        draw_texture_rect(
-            SPARK_TEXTURE,
-            Rect2(local_pos - Vector2.ONE * radius, Vector2.ONE * radius * 2.0),
-            false,
-            Color(0.75, 0.72, 1.0, fade * 0.8)
-        )
+        match int(mote["kind"]):
+            0:
+                draw_circle(local_pos, radius * 0.76, Color(0.56, 0.48, 1.0, fade * 0.16))
+                draw_circle(local_pos, radius * 0.34, Color(0.76, 0.77, 1.0, fade * 0.77))
+                draw_circle(local_pos, radius * 0.12, Color(1.0, 0.98, 1.0, fade * 0.95))
+            1:
+                _draw_moon_shard(local_pos, radius, float(mote["angle"]), Color(0.69, 0.57, 1.0, fade * 0.84))
+            2:
+                draw_arc(local_pos, radius * 1.1, float(mote["angle"]), float(mote["angle"]) + 1.7, 10, Color(0.85, 0.79, 1.0, fade * 0.88), maxf(1.0, radius * 0.23), true)
+            3:
+                draw_line(local_pos + Vector2(-radius * 1.1, 0), local_pos + Vector2(radius * 1.1, 0), Color(0.89, 0.83, 1.0, fade * 0.87), maxf(1.0, radius * 0.2), true)
+                draw_line(local_pos + Vector2(0, -radius * 1.6), local_pos + Vector2(0, radius * 1.6), Color(0.96, 0.94, 1.0, fade * 0.92), maxf(1.0, radius * 0.2), true)
 
     # 본체는 독립적으로 회전하며, 곡선 비행의 방향과 무관하게 팽이처럼 돈다.
     draw_circle(Vector2.ZERO, IMAGE_DIAMETER * 0.47, Color(0.65, 0.56, 1.0, 0.11))
@@ -128,3 +139,15 @@ func _draw() -> void:
     var diameter := IMAGE_DIAMETER * (1.0 + sin(age * 14.0) * 0.025)
     draw_texture_rect(MOON_TEXTURE, Rect2(-Vector2.ONE * diameter * 0.5, Vector2.ONE * diameter), false)
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_moon_shard(at: Vector2, radius: float, angle: float, tint: Color) -> void:
+    var polygon := PackedVector2Array([
+        Vector2(-radius * 0.30, -radius),
+        Vector2(radius * 0.45, -radius * 0.60),
+        Vector2(radius * 0.32, radius),
+        Vector2(-radius * 0.45, radius * 0.60)
+    ])
+    for i in polygon.size():
+        polygon[i] = at + polygon[i].rotated(angle)
+    draw_colored_polygon(polygon, tint)
+    draw_line(at - Vector2.RIGHT.rotated(angle) * radius * 0.38, at + Vector2.RIGHT.rotated(angle) * radius * 0.38, Color(0.98, 0.93, 1.0, tint.a * 0.6), 1.0, true)
