@@ -1,5 +1,5 @@
 extends Node2D
-## Black hole VFX v3: procedural shader disk + a few inward-moving particles.
+## Black hole VFX v4: mature purple disk from birth, faster inner spin and asymmetric silhouette.
 ## This standalone preview does not change gameplay damage, pull or fusion behavior.
 
 signal pulsed(at: Vector2, radius: float)
@@ -8,7 +8,7 @@ signal vanished(at: Vector2)
 const BLACK_HOLE_SHADER: Shader = preload("res://shaders/black_hole_disk.gdshader")
 const LIFETIME := 5.0
 const TICK_INTERVAL := 0.25
-const BIRTH_TIME := 0.24
+const BIRTH_TIME := 0.11
 const COLLAPSE_TIME := 0.40
 const BASE_RADIUS := 96.0
 # Preview coefficients only. Mapping to Magicraft's 3 stages is not finalized.
@@ -95,11 +95,14 @@ func _update_visual() -> void:
     disk_rect.position = -Vector2.ONE * diameter * 0.5
     disk_rect.size = Vector2.ONE * diameter
 
-    # Actual shader noise moves over time; the quad itself does not rotate.
-    var scale_factor := maxf(0.02, _appearance())
+    # Keep the FINAL vortex shape and full disk radius from its first visible frame.
+    # The former _appearance() -> u_scale link created a completely different
+    # little green donut during birth. Fade brightness only; shrink only at death.
+    var scale_factor := maxf(0.035, _end_fraction())
+    var opacity := _birth_fraction() * _end_fraction()
     var pulse := pow(1.0 - clampf(tick_clock / TICK_INTERVAL, 0.0, 1.0), 4.0)
     disk_material.set_shader_parameter("u_time", elapsed)
-    disk_material.set_shader_parameter("u_opacity", minf(1.0, _appearance() * 2.0))
+    disk_material.set_shader_parameter("u_opacity", opacity)
     disk_material.set_shader_parameter("u_scale", scale_factor)
     disk_material.set_shader_parameter("u_tick_flash", pulse)
 
@@ -149,13 +152,13 @@ func _draw() -> void:
         var alpha := opacity * minf(1.0, fraction * 2.4)
         match int(mote["kind"]):
             0:
-                draw_circle(at, size * 0.75, Color(0.83, 0.93, 0.70, alpha * 0.75))
+                draw_circle(at, size * 0.75, Color(0.82, 0.64, 1.0, alpha * 0.75))
             1:
                 var inward := (-at).normalized()
                 draw_line(
                     at - inward * size * 1.8,
                     at + inward * size * 0.55,
-                    Color(0.42, 0.85, 0.90, alpha * 0.82),
+                    Color(0.75, 0.56, 1.0, alpha * 0.82),
                     maxf(1.0, size * 0.42),
                     true
                 )
