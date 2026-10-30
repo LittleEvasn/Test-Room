@@ -8,7 +8,8 @@ const BLOOM_BURST_SCRIPT = preload("res://scripts/bloom_burst.gd")
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
-const BLOOM_RADII := [70.0, 90.0, 115.0, 140.0]
+# Test-Room 전용으로 확대한 VFX 반경. 본게임 꽃폭탄 밸런스에는 영향 없음.
+const BLOOM_RADII := [90.0, 115.0, 145.0, 180.0]
 
 var target_point := Vector2(1330.0, 490.0)
 var autofire := true
@@ -57,7 +58,7 @@ func shoot() -> void:
         bomb.configure(START_POINT, target_point, particle_multiplier, BLOOM_RADII[bloom_rank])
         add_child(bomb)
         bomb.add_to_group("vfx_bloom")
-        bomb.impacted.connect(_on_bloom_impact)
+        bomb.impacted.connect(_on_bloom_impact.bind(bloom_rank))
     fired_count += 1
 
 func _on_bolt_impact(point: Vector2) -> void:
@@ -66,11 +67,11 @@ func _on_bolt_impact(point: Vector2) -> void:
     burst.global_position = point
     add_child(burst)
 
-func _on_bloom_impact(point: Vector2, radius: float) -> void:
+func _on_bloom_impact(point: Vector2, radius: float, cast_rank: int) -> void:
     impact_count += 1
     var burst = BLOOM_BURST_SCRIPT.new()
     burst.global_position = point
-    burst.configure(radius, particle_multiplier, bloom_rank)
+    burst.configure(radius, particle_multiplier, cast_rank)
     add_child(burst)
 
 func _unhandled_input(event: InputEvent) -> void:
