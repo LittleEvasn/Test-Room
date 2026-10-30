@@ -1,18 +1,19 @@
 extends Node2D
-## 블랙홀(소용돌이 씨앗) VFX 실험실 전용.
-## 본게임의 흡입/피해 판정은 건드리지 않는다. 시각 반경과 0.25초 펄스만 모의한다.
+## 소용돌이 씨앗 / 블랙홀 VFX v2: 거대한 암흑 중심 + 넓은 강착 원반.
+## 구 버전의 보라색 다중 타원·나선 팔·수정 장식은 폐기.
+## 시각 효과만 구현하며 실제 적 흡입/피해는 본게임에서 별도 연결한다.
 
 signal pulsed(at: Vector2, radius: float)
 signal vanished(at: Vector2)
 
 const LIFETIME := 5.0
 const TICK_INTERVAL := 0.25
-const BIRTH_TIME := 0.30
-const COLLAPSE_TIME := 0.48
-const BASE_RADIUS := 76.0
-# 4단계로 비교하기 위한 임시 시각 성장 계수: 원작 3단계와의 대응은 아직 미확정.
+const BIRTH_TIME := 0.26
+const COLLAPSE_TIME := 0.42
+const BASE_RADIUS := 94.0
+# 본게임 +0~+3 성장 계수는 아직 미확정. 이 값은 비교용 모의 계수이다.
 const PREVIEW_GROWTH := [0.0, 0.07, 0.14, 0.21]
-const MAX_MOTES := 115
+const MAX_MOTES := 72
 
 var elapsed := 0.0
 var tick_clock := 0.0
@@ -25,7 +26,7 @@ var motes: Array[Dictionary] = []
 
 func configure(at: Vector2, toward: Vector2, particle_density: float, upgrade_rank: int) -> void:
     spawn_pos = at
-    position = at
+    global_position = at
     rank = clampi(upgrade_rank, 0, 3)
     density = clampf(particle_density, 0.0, 3.0)
     drift = (toward - at).normalized()
@@ -35,11 +36,11 @@ func configure(at: Vector2, toward: Vector2, particle_density: float, upgrade_ra
 func _radius() -> float:
     return BASE_RADIUS * (1.0 + float(PREVIEW_GROWTH[rank]) * minf(elapsed, LIFETIME - COLLAPSE_TIME))
 
-func _visual_radius() -> float:
+func _appearance() -> float:
     var birth := 1.0 - pow(1.0 - clampf(elapsed / BIRTH_TIME, 0.0, 1.0), 3.0)
-    var collapse := clampf((LIFETIME - elapsed) / COLLAPSE_TIME, 0.0, 1.0)
-    collapse = collapse * collapse * (3.0 - 2.0 * collapse)
-    return _radius() * birth * (0.08 + collapse * 0.92)
+    var end := clampf((LIFETIME - elapsed) / COLLAPSE_TIME, 0.0, 1.0)
+    end = end * end * (3.0 - 2.0 * end)
+    return maxf(0.0, birth * end)
 
 func _process(delta: float) -> void:
     elapsed += delta
@@ -48,8 +49,8 @@ func _process(delta: float) -> void:
         queue_free()
         return
 
-    # 표적에서 형성된 뒤 천천히 이동하며, 미세하게 휘어지는 궤적을 따른다.
-    global_position = spawn_pos + drift * (elapsed * 54.0) + drift.orthogonal() * (sin(elapsed * 1.7) * 25.0)
+    # 완전히 정지된 장판이 아니라 천천히 전진하는 개체. 이동 폭은 과장하지 않는다.
+    global_position = spawn_pos + drift * (elapsed * 24.0)
 
     tick_clock += delta
     while tick_clock >= TICK_INTERVAL:
@@ -62,99 +63,111 @@ func _process(delta: float) -> void:
         _emit_motes(delta)
     queue_redraw()
 
+func _emit_motes(delta: float) -> void:
+    emit_carry = minf(4.0, emit_carry + delta * 22.0 * density)
+    while emit_carry >= 1.0 and motes.size() < MAX_MOTES:
+        emit_carry -= 1.0
+        var theta := randf_range(0.0, TAU)
+        var distance := _radius() * randf_range(0.98, 1.30)
+        var lifetime := randf_range(0.78, 1.75)
+        motes.append({
+            "pos": global_position + Vector2.RIGHT.rotated(theta) * distance,
+            "life": lifetime,
+            "total": lifetime,
+            "size": randf_range(1.8, 4.8),
+            "kind": randi_range(0, 2),
+            "spin": randf_range(0.65, 1.15),
+            "speed": randf_range(90.0, 137.0)
+        })
+
 func _advance_motes(delta: float) -> void:
     for i in range(motes.size() - 1, -1, -1):
         var mote: Dictionary = motes[i]
+        var world_pos: Vector2 = mote["pos"]
+        var to_center := global_position - world_pos
+        var distance := to_center.length()
         mote["life"] = float(mote["life"]) - delta
-        mote["distance"] = float(mote["distance"]) - float(mote["speed"]) * delta
-        mote["angle"] = float(mote["angle"]) + float(mote["spin"]) * delta
-        if float(mote["life"]) <= 0.0 or float(mote["distance"]) <= _visual_radius() * 0.24:
+        if float(mote["life"]) <= 0.0 or distance <= _radius() * 0.42:
             motes.remove_at(i)
-
-func _emit_motes(delta: float) -> void:
-    emit_carry = minf(5.0, emit_carry + delta * (38.0 * density))
-    while emit_carry >= 1.0 and motes.size() < MAX_MOTES:
-        emit_carry -= 1.0
-        var radius := maxf(16.0, _visual_radius())
-        var start_distance := radius * randf_range(1.12, 1.49)
-        var speed := randf_range(155.0, 235.0) * (0.8 + rank * 0.1)
-        var life := clampf((start_distance - radius * 0.23) / speed + 0.17, 0.42, 2.5)
-        motes.append({
-            "angle": randf_range(0.0, TAU),
-            "distance": start_distance,
-            "speed": speed,
-            "spin": randf_range(-4.0, -1.9),
-            "life": life,
-            "total": life,
-            "size": randf_range(2.7, 7.8),
-            "kind": randi_range(0, 3)
-        })
+            continue
+        var inward := to_center / maxf(distance, 0.01)
+        var inward_speed := float(mote["speed"]) * (1.0 + clampf(1.0 - distance / (_radius() * 1.4), 0.0, 0.65))
+        var tangent := inward.orthogonal()
+        mote["pos"] = world_pos + (inward * inward_speed + tangent * inward_speed * float(mote["spin"]) * 0.66) * delta
 
 func _draw() -> void:
-    var radius := _visual_radius()
+    var amount := _appearance()
+    var radius := _radius() * amount
     if radius < 1.0:
         return
-    var appear := clampf(elapsed / 0.18, 0.0, 1.0)
-    var fade := clampf((LIFETIME - elapsed) / 0.26, 0.0, 1.0)
-    var opacity := appear * fade
-    var rotation_phase := elapsed * 2.4
-    var tick_glow := pow(1.0 - tick_clock / TICK_INTERVAL, 3.0)
 
-    # 보라색 중력권과 청백색 먼지 원반. 공격 판정 반경의 크기 변화를 그대로 따른다.
-    draw_circle(Vector2.ZERO, radius * 1.09, Color(0.28, 0.16, 0.64, 0.095 * opacity))
-    draw_circle(Vector2.ZERO, radius * 0.80, Color(0.53, 0.36, 0.85, 0.15 * opacity))
-    draw_arc(Vector2.ZERO, radius, 0.0, TAU, 76, Color(0.70, 0.51, 1.0, 0.24 * opacity), 1.7, true)
+    var phase := elapsed * 1.65
+    var core := radius * 0.48
+    var tick_flash := pow(1.0 - clampf(tick_clock / TICK_INTERVAL, 0.0, 1.0), 4.0)
 
-    draw_set_transform(Vector2.ZERO, rotation_phase * 0.45, Vector2(1.0, 0.64))
-    draw_arc(Vector2.ZERO, radius * 0.77, 0.0, TAU, 76, Color(0.55, 0.33, 0.94, 0.40 * opacity), 7.5, true)
-    draw_arc(Vector2.ZERO, radius * 0.77, -0.30, 1.8, 32, Color(0.92, 0.85, 1.0, 0.88 * opacity), 4.0, true)
-    draw_set_transform(Vector2.ZERO, rotation_phase * -0.35, Vector2(1.0, 0.82))
-    draw_arc(Vector2.ZERO, radius * 0.93, 0.25, 3.75, 52, Color(0.50, 0.73, 1.0, 0.42 * opacity), 3.0, true)
-    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+    # 강한 암흑 중심을 먼저 위한, 넓고 탁한 청록·황록색 강착 원반.
+    # 얇은 타원선을 겹치는 대신 두껍고 부드러운 띠를 원형으로 배치한다.
+    draw_circle(Vector2.ZERO, radius * 1.08, Color(0.15, 0.27, 0.29, 0.075 * amount))
+    draw_circle(Vector2.ZERO, radius * 1.01, Color(0.18, 0.32, 0.30, 0.15 * amount))
+    draw_circle(Vector2.ZERO, radius * 0.94, Color(0.20, 0.32, 0.21, 0.27 * amount))
+    draw_circle(Vector2.ZERO, radius * 0.84, Color(0.34, 0.40, 0.18, 0.28 * amount))
+    draw_circle(Vector2.ZERO, radius * 0.71, Color(0.18, 0.37, 0.34, 0.43 * amount))
 
-    # 네 개의 나선 팔이 검은 중심핵 쪽으로 말려 들어간다.
-    for arm in 4:
-        var points := PackedVector2Array()
-        for j in 18:
-            var t := float(j) / 17.0
-            var spiral_radius := radius * (0.29 + 0.60 * t)
-            var angle := float(arm) * TAU / 4.0 - rotation_phase + t * 3.15
-            points.append(Vector2.RIGHT.rotated(angle) * spiral_radius)
-        draw_polyline(points, Color(0.80, 0.66, 1.0, (0.32 if arm % 2 == 0 else 0.21) * opacity), 2.4, true)
+    # 둥근 가스 띠 4개: 서로 다른 폭/명도로 회전하는 강착 원반.
+    # 나선 팔 모양을 명확히 그리지 않아 바람개비처럼 보이지 않게 한다.
+    for band in 4:
+        var angle := phase * (0.67 + float(band) * 0.13) + float(band) * TAU / 4.0
+        var band_color := Color(0.34, 0.67, 0.56, 0.27 * amount)
+        match band:
+            0: band_color = Color(0.78, 0.81, 0.38, 0.48 * amount)
+            1: band_color = Color(0.21, 0.68, 0.70, 0.40 * amount)
+            2: band_color = Color(0.50, 0.72, 0.35, 0.38 * amount)
+            3: band_color = Color(0.30, 0.50, 0.81, 0.29 * amount)
+        _draw_gas_band(radius, angle, band_color, float(band))
 
-    # 궤도 밖에서 생성된 입자 네 종류가 실제로 중심으로 이동하면서 사라진다.
+    # 넓고 희미한 안쪽 회전 고리. 특정 지점만 강하게 빛나도록 불균일하게 처리.
+    draw_arc(Vector2.ZERO, radius * 0.65, phase, phase + 1.85, 42, Color(0.64, 0.83, 0.52, 0.42 * amount), radius * 0.095, true)
+    draw_arc(Vector2.ZERO, radius * 0.64, phase + PI, phase + PI + 1.35, 33, Color(0.30, 0.75, 0.80, 0.43 * amount), radius * 0.075, true)
+    draw_arc(Vector2.ZERO, radius * 0.85, -phase * 0.72 + 1.2, -phase * 0.72 + 2.55, 28, Color(0.78, 0.86, 0.49, 0.30 * amount), radius * 0.065, true)
+
+    # 실제로 바깥에서 안으로 끌려오는 입자. 금빛 반짝이나 수정 조각은 넣지 않는다.
     for mote in motes:
-        var life_fraction := clampf(float(mote["life"]) / float(mote["total"]), 0.0, 1.0)
-        var point := Vector2.RIGHT.rotated(float(mote["angle"])) * float(mote["distance"])
-        var size := float(mote["size"]) * (0.5 + 0.5 * life_fraction)
-        var alpha := opacity * minf(1.0, life_fraction * 2.2)
+        var f := clampf(float(mote["life"]) / float(mote["total"]), 0.0, 1.0)
+        var at := to_local(Vector2(mote["pos"]))
+        var size := float(mote["size"]) * (0.5 + 0.5 * f)
+        var alpha := amount * minf(1.0, f * 3.0)
+        var toward := -at.normalized()
         match int(mote["kind"]):
             0:
-                draw_circle(point, size * 0.8, Color(0.65, 0.40, 1.0, alpha * 0.24))
-                draw_circle(point, size * 0.31, Color(0.91, 0.79, 1.0, alpha * 0.95))
+                draw_circle(at, size * 0.7, Color(0.81, 0.91, 0.66, alpha * 0.72))
             1:
-                _draw_shard(point, size, float(mote["angle"]) + PI * 0.5, Color(0.56, 0.76, 1.0, alpha * 0.82))
+                draw_line(at - toward * size * 1.9, at + toward * size * 0.65, Color(0.43, 0.85, 0.91, alpha * 0.82), maxf(1.0, size * 0.46), true)
             2:
-                var tangent := Vector2.RIGHT.rotated(float(mote["angle"]) + PI * 0.5)
-                draw_line(point - tangent * size * 1.8, point + tangent * size * 0.7, Color(0.82, 0.65, 1.0, alpha * 0.84), maxf(1.0, size * 0.29), true)
-            3:
-                draw_arc(point, size, float(mote["angle"]), float(mote["angle"]) + 1.85, 9, Color(0.86, 0.93, 1.0, alpha * 0.9), maxf(1.0, size * 0.3), true)
+                draw_circle(at, size * 0.85, Color(0.61, 0.75, 0.40, alpha * 0.19))
+                draw_circle(at, size * 0.34, Color(0.90, 0.96, 0.84, alpha * 0.80))
 
-    # 반짝이는 고리 속의 절대적인 검은 중심. 피해 틱마다 미세하게 테두리가 맥동한다.
-    var core := radius * 0.27
-    draw_circle(Vector2.ZERO, core * 1.38, Color(0.58, 0.32, 0.96, (0.20 + tick_glow * 0.08) * opacity))
-    draw_circle(Vector2.ZERO, core * 1.08, Color(0.71, 0.54, 1.0, 0.87 * opacity))
-    draw_circle(Vector2.ZERO, core, Color(0.055, 0.035, 0.12, opacity))
-    draw_circle(Vector2.ZERO, core * 0.85, Color(0.012, 0.009, 0.035, opacity))
-    draw_arc(Vector2.ZERO, core * 1.08, -rotation_phase, -rotation_phase + PI * 0.83, 26, Color(0.95, 0.89, 1.0, (0.52 + 0.16 * tick_glow) * opacity), 2.5, true)
+    # 이벤트 호라이즌: 중심부를 크게 확보해야 '블랙홀'로 인지된다.
+    draw_circle(Vector2.ZERO, core * 1.20, Color(0.19, 0.48, 0.50, 0.28 * amount))
+    draw_circle(Vector2.ZERO, core * 1.10, Color(0.45, 0.78, 0.73, (0.55 + tick_flash * 0.06) * amount))
+    draw_circle(Vector2.ZERO, core * 1.025, Color(0.066, 0.11, 0.13, amount))
+    draw_circle(Vector2.ZERO, core, Color(0.006, 0.009, 0.018, amount))
 
-func _draw_shard(at: Vector2, size: float, angle: float, tint: Color) -> void:
-    var polygon := PackedVector2Array([
-        Vector2(-size * 0.4, -size),
-        Vector2(size * 0.5, -size * 0.3),
-        Vector2(size * 0.25, size),
-        Vector2(-size * 0.5, size * 0.2)
-    ])
-    for i in polygon.size():
-        polygon[i] = at + polygon[i].rotated(angle)
+    # 광량이 일정한 흰 링 대신 '굴절된 밝은 가장자리' 일부만 남긴다.
+    draw_arc(Vector2.ZERO, core * 1.10, phase * 0.92 - 0.9, phase * 0.92 + 0.82, 32, Color(0.81, 0.99, 0.90, 0.79 * amount), 2.8, true)
+    draw_arc(Vector2.ZERO, core * 1.10, phase * 0.92 + 2.2, phase * 0.92 + 3.0, 22, Color(0.66, 0.91, 0.93, 0.44 * amount), 2.3, true)
+
+func _draw_gas_band(radius: float, start_angle: float, tint: Color, band_index: float) -> void:
+    var polygon := PackedVector2Array()
+    var inner_points := PackedVector2Array()
+    var steps := 24
+    for i in steps + 1:
+        var t := float(i) / float(steps)
+        var angle := start_angle + t * (1.72 + band_index * 0.07)
+        var radial := radius * (0.68 + 0.16 * t + 0.028 * sin(t * PI * 2.0 + band_index))
+        var taper := pow(sin(t * PI), 0.7)
+        var width := radius * (0.008 + 0.091 * taper)
+        polygon.append(Vector2.RIGHT.rotated(angle) * (radial + width))
+        inner_points.append(Vector2.RIGHT.rotated(angle) * (radial - width))
+    for i in range(inner_points.size() - 1, -1, -1):
+        polygon.append(inner_points[i])
     draw_colored_polygon(polygon, tint)
