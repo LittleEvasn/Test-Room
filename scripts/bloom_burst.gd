@@ -1,6 +1,6 @@
 extends Node2D
 ## 꽃잎 하나를 복제/회전해 순간 개화와 흩날리는 파편을 만든다.
-## 충격파의 최대 반경은 게임의 폭발 반경 값과 동일하다.
+## 충격파는 VFX 실험실에 설정된 폭발 반경까지 확장된다.
 
 const PETAL_TEXTURE: Texture2D = preload("res://assets/꽃.png")
 const SPARK_TEXTURE: Texture2D = preload("res://assets/spark.png")
@@ -19,13 +19,13 @@ func configure(radius: float, particle_density: float, upgrade_rank: int) -> voi
     rank = clampi(upgrade_rank, 0, 3)
 
 func _ready() -> void:
-    var count := int(roundi(float(8 + rank * 2) * density))
+    var count := int(roundi(float(10 + rank * 5) * density))
     count = clampi(count, 0, 50)
     for i in count:
-        var theta := TAU * float(i) / float(maxi(1, count)) + randf_range(-0.22, 0.22)
+        var theta := TAU * float(i % 5) / 5.0 + randf_range(-0.26, 0.26)
         petals.append({
             "angle": theta,
-            "speed": randf_range(blast_radius * 1.0, blast_radius * 1.8),
+            "speed": randf_range(blast_radius * 1.15, blast_radius * 1.95),
             "size": randf_range(21.0, 42.0) * (0.85 + 0.08 * rank),
             "spin": randf_range(-7.0, 7.0),
             "phase": randf_range(-0.3, 0.3)
@@ -55,15 +55,15 @@ func _draw() -> void:
     var ring_alpha := 1.0 - smoothstep(0.12, 0.40, elapsed)
 
     # 즉발 피해의 최대 범위를 정확하게 표시한다.
-    draw_circle(Vector2.ZERO, blast_radius * (0.12 + 0.18 * open), Color(1.0, 0.67, 0.73, 0.20 * flower_alpha))
-    draw_arc(Vector2.ZERO, maxf(1.0, blast_radius * ring_progress), 0.0, TAU, 64, Color(1.0, 0.73, 0.79, 0.88 * ring_alpha), 4.0, true)
+    draw_circle(Vector2.ZERO, blast_radius * (0.15 + 0.55 * open), Color(1.0, 0.67, 0.73, 0.17 * flower_alpha))
+    draw_arc(Vector2.ZERO, maxf(1.0, blast_radius * ring_progress), 0.0, TAU, 64, Color(1.0, 0.73, 0.79, 0.92 * ring_alpha), 6.0, true)
     draw_arc(Vector2.ZERO, maxf(1.0, blast_radius * ring_progress * 0.72), 0.0, TAU, 56, Color(1.0, 0.94, 0.79, 0.34 * ring_alpha), 2.0, true)
 
-    # 작은 꽃봉오리가 찰나에 여섯 꽃잎으로 열리는 모습.
-    for i in 6:
-        var angle := TAU * float(i) / 6.0 - PI * 0.5
-        var outward := Vector2.RIGHT.rotated(angle) * blast_radius * (0.08 + 0.28 * open)
-        var size := blast_radius * (0.25 + 0.43 * open)
+    # 꽃잎 다섯 장을 72도 간격으로 펼쳐서 폭발의 바깥 경계까지 확장한다.
+    for i in 5:
+        var angle := TAU * float(i) / 5.0 - PI * 0.5
+        var outward := Vector2.RIGHT.rotated(angle) * blast_radius * (0.10 + 0.38 * open)
+        var size := blast_radius * (0.28 + 0.70 * open)
         draw_set_transform(outward, angle + PI * 0.5, Vector2.ONE)
         draw_texture_rect(PETAL_TEXTURE, Rect2(-Vector2.ONE * size * 0.5, Vector2.ONE * size), false, Color(1.0, 1.0, 1.0, flower_alpha * 0.95))
         draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
