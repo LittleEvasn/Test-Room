@@ -34,13 +34,16 @@ func _process(delta: float) -> void:
 
     var distance_left := global_position.distance_to(destination)
     var step := SPEED * delta
-    if distance_left <= step + 8.0 or elapsed >= MAX_LIFETIME:
-        var blast_at := destination if distance_left <= step + 8.0 else global_position
-        impacted.emit(blast_at, blast_radius)
-        queue_free()
-        return
-
-    global_position += heading * step
+    if has_meta("aux_falling"):
+        # Particle update, emission, and petal spin continue while descending.
+        heading = Vector2(get_meta("aux_fall_direction", heading))
+    else:
+        if distance_left <= step + 8.0 or elapsed >= MAX_LIFETIME:
+            var blast_at := destination if distance_left <= step + 8.0 else global_position
+            impacted.emit(blast_at, blast_radius)
+            queue_free()
+            return
+        global_position += heading * step
     emission_carry += delta * 29.0 * emission_density
     while emission_carry >= 1.0 and motes.size() < MAX_PARTICLES:
         emission_carry -= 1.0
