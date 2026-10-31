@@ -463,7 +463,8 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var descent = FALL_SCRIPT.new()
-		descent.configure(shot_aim, spawned_spell, Vector2(context["origin"]))
+		descent.configure(shot_aim, spawned_spell, Vector2(context["origin"]),
+			in_orbit, rank, _orbit_velocity(spell_id))
 		descent.arrived.connect(_on_actual_fall_arrived.bind(context.duplicate(true), spawned_spell, shot_aim, is_echo, branch, branches))
 		add_child(descent)
 		return true
@@ -501,7 +502,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
 	return true
 
-func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
+func _on_actual_fall_arrived(landing: Vector2, context: Dictionary, visual: Node2D, _aim: Vector2, is_echo: bool, branch: int, branches: int) -> void:
 	if not is_instance_valid(visual) or visual.is_queued_for_deletion():
 		return
 	var kind: int = int(context["spell"])
@@ -547,7 +548,7 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 			# Reuse the existing fireball impact particles and lingering flames.
 			visual.call("_impact")
 
-func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
+func _on_fall_arrived(landing: Vector2, context: Dictionary, _aim: Vector2, is_echo: bool, branch: int, branches: int) -> void:
 	var landed_context := context.duplicate(true)
 	landed_context["_fall_arrived"] = true
 	# Non-orbit attacks start just above the impact point, rather than flying
