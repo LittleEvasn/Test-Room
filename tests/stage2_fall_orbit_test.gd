@@ -41,18 +41,18 @@ func _run_tests() -> void:
 		actor.call("_process", 0.14)
 		_check(actor.is_processing(), "VFX processor still enabled %d" % spell_id)
 		if spell_id == 0:
-			_check(actor.particles.size() > 0, "star particles emitted in midair")
-			_check(actor.age > 0.0, "star spin/age continues in midair")
+			_check(Array(actor.get("particles")).size() > 0, "star particles emitted in midair")
+			_check(float(actor.get("age")) > 0.0, "star spin/age continues in midair")
 		if spell_id == 1:
-			_check(actor.motes.size() > 0, "flower bomb emits petals midair")
+			_check(Array(actor.get("motes")).size() > 0, "flower bomb emits petals midair")
 		if spell_id == 2:
-			_check(actor.age > 0.0 and actor.motes.size() > 0, "boomerang keeps spin/trail")
+			_check(float(actor.get("age")) > 0.0 and Array(actor.get("motes")).size() > 0, "boomerang keeps spin/trail")
 		if spell_id == 3:
-			_check(float(actor.disk_material.get_shader_parameter("u_opacity")) > 0.0, "black hole shader is visible while falling")
+			_check(float((actor.get("disk_material") as ShaderMaterial).get_shader_parameter("u_opacity")) > 0.0, "black hole shader is visible while falling")
 		if spell_id == 4:
-			_check(actor.seed_angle != 0.0, "thorn seed still rotates while descending")
+			_check(float(actor.get("seed_angle")) != 0.0, "thorn seed still rotates while descending")
 		if spell_id == 9:
-			_check(actor.particles.size() > 0, "falling fireball retains world-space flame trail")
+			_check(Array(actor.get("particles")).size() > 0, "falling fireball retains world-space flame trail")
 		fall._process(0.45) # total > 0.58s descent
 		_check(lab.fired_count == 1, "landing handled exactly once %d" % spell_id)
 		if spell_id == 3:
