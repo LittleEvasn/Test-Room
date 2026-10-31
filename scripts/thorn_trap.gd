@@ -147,7 +147,7 @@ func _roll(delta: float) -> void:
 		if stopped:
 			continue
 
-		# SpellMoveJob.Normal_Common writes Direction*Speed to PhysicsVelocity.
+			# SpellMoveJob.Normal_Common writes Direction*Speed to PhysicsVelocity.
 		ground_pos += planar_velocity * (MINE_UNIT_PX * step)
 		global_position = ground_pos
 		# Spell1012TrickMineSystem rotates the art using quaternion.Euler(radians).
