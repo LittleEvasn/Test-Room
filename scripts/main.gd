@@ -31,7 +31,8 @@ const FAN_INDEX := 1
 const ECHO_INDEX := 4
 const FALL_INDEX := 5
 const ORBIT_INDEX := 6
-const ORBIT_SPELLS := [0, 1, 2, 3, 4, 7, 9]
+const ORBIT_SPELLS := [0, 1, 2, 3, 4, 5, 6, 7, 9, 10]
+const FALL_PHYSICAL_SPELLS := [0, 1, 2, 3, 4, 7, 9]
 const MAX_FALL_PREVIEWS := 18
 const FAN_ANGLE := 0.24 # radians, same base fan spacing as the main game
 const ECHO_DELAY := 0.18
@@ -79,6 +80,7 @@ var pending_echoes: Array[Dictionary] = []
 var original_casts := 0
 var echo_casts := 0
 var blocked_spawns := 0
+var thunder_orbit_phase := 0.0
 
 var title_label: Label
 var info_label: Label
@@ -172,7 +174,11 @@ func _process(delta: float) -> void:
 				pending.append(SUPPORT_CHOICES[chosen])
 		var note := " | 미구현: " + ", ".join(pending) if not pending.is_empty() else ""
 		if _has_support(ORBIT_INDEX) and not _orbit_supported(selected_spell):
-			note += " | 이 마법은 공전 미지원"
+			note += " | 번개 아크는 공전 미지원"
+		elif _has_support(ORBIT_INDEX) and selected_spell == 4:
+			note += " | 덫: 접선 발사·고정 설치"
+		elif _has_support(ORBIT_INDEX) and selected_spell == 10:
+			note += " | 광선: 원형 빔"
 		effect_label.text = "갈래 %s / 메아리 %s / 낙하 %s / 공전 %s | 원본 %d 재시전 %d 대기 %d 제한 %d%s" % [
 			"3발" if _has_support(FAN_INDEX) else "OFF",
 			"ON" if _has_support(ECHO_INDEX) else "OFF",
@@ -228,8 +234,12 @@ func _spell_rank(spell_id: int) -> int:
 
 func _cast_snapshot(replace_hole: bool) -> Dictionary:
 	# Freeze the source spell, direction, rank and test settings for a delayed echo.
+	var aim := target_point
+	if selected_spell == 6 and _has_support(ORBIT_INDEX):
+		aim = START_POINT + Vector2.from_angle(thunder_orbit_phase) * ORBIT_SCRIPT.radius_for(thunder_rank)
+		thunder_orbit_phase += 0.82
 	return {
-		"spell": selected_spell, "origin": START_POINT, "aim": target_point,
+		"spell": selected_spell, "origin": START_POINT, "aim": aim,
 		"rank": _spell_rank(selected_spell), "density": particle_multiplier,
 		"motion": fireball_motion, "fan": _has_support(FAN_INDEX),
 		"echo": _has_support(ECHO_INDEX), "fall": _has_support(FALL_INDEX),
@@ -275,12 +285,12 @@ func _fire_wave(context: Dictionary, echo_copy: bool) -> int:
 	return successes
 
 func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, branch: int, branches: int) -> bool:
-	if bool(context.get("fall", false)) and not bool(context.get("_fall_arrived", false)):
+	if bool(context.get("fall", false)) and int(context["spell"]) not in FALL_PHYSICAL_SPELLS and not bool(context.get("_fall_arrived", false)):
 		if get_tree().get_nodes_in_group("vfx_fall_preview").size() >= MAX_FALL_PREVIEWS:
 			blocked_spawns += 1
 			return false
 		var warning = FALL_SCRIPT.new()
-		warning.configure(shot_aim)
+		warning.configure(shot_aim, null, Vector2(context["origin"]))
 		warning.arrived.connect(_on_fall_arrived.bind(context.duplicate(true), shot_aim, is_echo, branch, branches))
 		add_child(warning)
 		return true
@@ -292,6 +302,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	var motion: int = int(context["motion"])
 	var replace_hole: bool = bool(context["replace_hole"]) and not is_echo
 	var in_orbit: bool = bool(context.get("orbit", false))
+	var in_fall: bool = bool(context.get("fall", false)) and not bool(context.get("_fall_arrived", false))
 	var cast_aim: Vector2 = shot_aim
 	if in_orbit:
 		var heading: Vector2 = shot_aim - origin
@@ -360,6 +371,10 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		# Pure animation preview: no enemy, status effects, hitbox or spell combat.
 		var sword = ICE_SWORD_SCRIPT.new()
 		sword.configure(origin, shot_aim, density, rank, ice_sword_swings)
+		if in_orbit:
+			sword.aux_orbit = true
+			sword.orbit_anchor = origin
+			sword.orbit_angle = (shot_aim - origin).angle()
 		add_child(sword)
 		spawned_spell = sword
 		sword.add_to_group("vfx_ice_sword")
@@ -399,7 +414,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 10:
 		# Magicraft 1004 basic: instant straight beam, no refraction until a later test.
 		var ray = LASER_SCRIPT.new()
-		ray.configure(origin, shot_aim, density)
+		ray.configure(origin, shot_aim, density, in_orbit)
 		add_child(ray)
 		spawned_spell = ray
 		ray.add_to_group("vfx_laser")
@@ -424,10 +439,14 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var trap = THORN_SCRIPT.new()
-		trap.configure(origin, shot_aim, density, rank)
+		var trap_aim := shot_aim
 		if in_orbit:
-			trap.set_meta("aux_orbit", true)
-			trap.state = "ARMED" # orbit an armed trap instead of rolling
+			# Tangential throw, but normal trap setup after stopping.
+			var radial := (shot_aim - origin).normalized()
+			if radial.length_squared() < 0.001:
+				radial = Vector2.RIGHT
+			trap_aim = origin + radial * 125.0 + radial.orthogonal() * 230.0
+		trap.configure(origin, trap_aim, density, rank)
 		add_child(trap)
 		spawned_spell = trap
 		trap.add_to_group("vfx_thorn")
