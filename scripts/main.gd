@@ -457,7 +457,13 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		return false
 	if is_echo:
 		spawned_spell.modulate.a = ECHO_PREVIEW_ALPHA
-	if in_orbit and spell_id != 9:
+	if in_fall and spell_id in FALL_PHYSICAL_SPELLS:
+		var descent = FALL_SCRIPT.new()
+		descent.configure(shot_aim, spawned_spell, Vector2(context["origin"]))
+		descent.arrived.connect(_on_actual_fall_arrived.bind(context.duplicate(true), spawned_spell, shot_aim, is_echo, branch, branches))
+		add_child(descent)
+		return true
+	if in_orbit and spell_id in [0, 1, 2, 3, 7]:
 		var driver = ORBIT_SCRIPT.new()
 		var phase: float = (shot_aim - origin).angle()
 		driver.configure(spawned_spell, origin, rank, _orbit_velocity(spell_id), phase, spell_id)
@@ -469,16 +475,64 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	if branches > 1:
 		label += " 갈래 %d/%d" % [branch, branches]
 	if in_orbit:
-		label += " [공전]"
+		label += " [접선 덫]" if spell_id == 4 else (" [원형 레이저]" if spell_id == 10 else " [공전]")
 	if bool(context.get("_fall_arrived", false)):
 		label += " [낙하 완료]"
 	var cast_id: int = harness.track(spawned_spell, label)
 	if spell_id == 10:
-		var beam_direction: Vector2 = (shot_aim - origin).normalized()
-		if beam_direction.length_squared() <= 0.001:
-			beam_direction = Vector2.RIGHT
-		harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
+		if in_orbit:
+			var ring_points := PackedVector2Array()
+			for i in range(37):
+				ring_points.append(origin + Vector2.from_angle(TAU * float(i) / 36.0) * float(LASER_SCRIPT.ORBIT_RADIUS))
+			harness.check_path(cast_id, ring_points)
+		else:
+			var beam_direction: Vector2 = (shot_aim - origin).normalized()
+			if beam_direction.length_squared() <= 0.001:
+				beam_direction = Vector2.RIGHT
+			harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
 	return true
+
+func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
+	if not is_instance_valid(visual) or visual.is_queued_for_deletion():
+		return
+	var kind: int = int(context["spell"])
+	var level: int = int(context["rank"])
+	var density: float = float(context["density"])
+	visual.global_position = landing
+	match kind:
+		0:
+			visual.destination = landing
+		1:
+			visual.destination = landing
+		2:
+			visual.configure(landing, landing + Vector2.RIGHT * 25.0, density)
+		3:
+			visual.spawn_pos = landing
+			visual.drift = Vector2.ZERO
+		4:
+			visual.configure(landing, landing, density, level)
+		7:
+			visual.configure(landing, landing, density, level)
+		9:
+			visual.from_point = landing
+			visual.to_point = landing
+			visual.age = 0.0
+			visual.distance = 0.0
+			visual.last_world = landing
+	if bool(context["orbit"]) and kind in [0, 1, 2, 3, 7]:
+		var driver = ORBIT_SCRIPT.new()
+		var direction: Vector2 = landing - Vector2(context["origin"])
+		driver.configure(visual, landing, level, _orbit_velocity(kind), direction.angle(), kind)
+		add_child(driver)
+	fired_count += 1
+	var label: String = SPELL_CHOICES[kind] + " [낙하]"
+	if is_echo:
+		label += " [메아리]"
+	if branches > 1:
+		label += " 갈래 %d/%d" % [branch, branches]
+	if bool(context["orbit"]):
+		label += " [공전]" if kind != 4 else " [접선 덫]"
+	harness.track(visual, label)
 
 func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
 	var landed_context := context.duplicate(true)
