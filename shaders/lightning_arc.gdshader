@@ -53,8 +53,10 @@ void fragment() {
     // The earlier UV-only frequencies caused 26 tiny bends even on a 30px bolt.
     // In slot 9, the number of bends now follows its physical screen length.
     float frequency_ratio = clamp(arc_length_px / 950.0, 0.04, 1.50);
-    float broad_frequency = mix(6.0, clamp(6.0 * frequency_ratio, 0.75, 9.0), distance_adaptation);
-    float fine_frequency = mix(26.0, clamp(26.0 * frequency_ratio, 1.70, 39.0), distance_adaptation);
+    // Preserve a few visible curves even when the bolt spans only a short distance.
+    // A strict proportional frequency could make close-range fBm nearly straight.
+    float broad_frequency = mix(6.0, clamp(6.0 * frequency_ratio, 2.0, 9.0), distance_adaptation);
+    float fine_frequency = mix(26.0, clamp(26.0 * frequency_ratio, 5.0, 39.0), distance_adaptation);
 
     float broad = fbm(vec2(progress * broad_frequency + phase_offset,
         time * mix(1.0, 0.64, body_crawl))) - 0.5;
@@ -74,25 +76,25 @@ void fragment() {
     float crawling_shape = broad * 1.10 + flowing * 1.22 + fine * 0.12;
     float shape = mix(original_shape, crawling_shape, body_crawl);
 
-    // Both endpoints remain anchored. Very short strikes have near-zero
-    // transverse displacement, so they cannot fold into a bright knot.
+    // Preserve both endpoints while retaining visible writhing at short range.
+    // Square-root distance scaling is gentler than the old linear 1/290 rule.
+    // This limits exaggerated loops without flattening close-range arcs.
     float envelope = pow(max(sin(progress * 3.14159265), 0.0), 0.7);
     float amplitude_scale = mix(1.0,
-        clamp(arc_length_px / 290.0, 0.02, 1.0), distance_adaptation);
+        clamp(sqrt(max(arc_length_px, 0.0) / 290.0), 0.23, 1.0),
+        distance_adaptation);
     float displacement = shape * offset_strength * envelope * amplitude_scale;
     float distance_to_bolt = abs(UV.y - 0.5 - displacement);
 
-    // Reduce the fixed 190px strip's glow footprint at close range too.
-    float close_width = mix(0.26, 1.0,
-        smoothstep(20.0, 260.0, arc_length_px));
-    float width_scale = mix(1.0, close_width, distance_adaptation);
-    float safe_core_width = core_width * max(width_scale, 0.67);
-    float core = 1.0 - smoothstep(safe_core_width * 0.30,
-        safe_core_width * 1.3, distance_to_bolt);
+    // Core thickness, inner glow and outer glow must remain independent of
+    // endpoint distance. Scaling them made short lightning thin and washed out.
+    // This same expression matches the previous slot-7 rendering at defaults.
+    float core = 1.0 - smoothstep(core_width * 0.30,
+        core_width * 1.3, distance_to_bolt);
     float inner = exp(-2.1 * pow(
-        distance_to_bolt / (safe_core_width * 4.0), 1.6));
+        distance_to_bolt / (core_width * 4.0), 1.6));
     float aura = exp(-3.0 * pow(
-        distance_to_bolt / (0.14 * width_scale), 1.25));
+        distance_to_bolt / 0.14, 1.25));
 
     float flicker = clamp(0.87 + 0.09 * sin(TIME * 65.0 + phase_offset)
         + 0.04 * sin(TIME * 121.0 + phase_offset * 2.0), 0.70, 1.0);
