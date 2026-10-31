@@ -409,7 +409,7 @@ func _draw() -> void:
 		3: aiming_color = Color("a38cff")
 		4: aiming_color = Color("ecadd2")
 		5: aiming_color = Color("8ceaff")
-		6: aiming_color = Color("ffe7a3")
+		6: aiming_color = Color("76baff")
 		7: aiming_color = Color("ff9c4e")
 		8: aiming_color = Color("64aeff")
 	draw_line(START_POINT, target_point, Color(aiming_color, 0.09), 2.0)
