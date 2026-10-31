@@ -150,6 +150,17 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 
 **변경 범위:** `scripts/thunder_vfx.gd` 신설, `scripts/main.gd`에 7번 선택/시전/Q·E/종료 통계/자동 발사/초기화를 추가. 기존 1~6번 마법 및 원본 PNG, 본게임 `witchlings-mayhem`은 변경하지 않는다. **실제 Godot 4.6 화면에서의 연출·성능 테스트는 별도로 필요**하다.
 
+## 번개 아크 VFX (9번)
+
+- 영상 레퍼런스: [FencerDevLog — Lightning](https://www.youtube.com/watch?v=WthCMZ1nm2Q), [공개 CC0 셰이더](https://godotshaders.com/shader/lightning/).
+- `9`번을 눌러 영상형 **갈래 없는 단일 번개 아크**를 선택한다. `Space` 또는 마우스 클릭으로 시전하고, 마우스로 끝점을 변경한다. 자동 시전은 약 1.15초 간격이다.
+- `scripts/lightning_arc_vfx.gd`와 `shaders/lightning_arc.gdshader`가 시작점~끝점을 잇는 **수평 방향 프랙탈 노이즈(fBm)** 번개를 구성한다. GDScript는 ColorRect 크기·회전·투명도만 제어하고, GPU 셰이더에서 움직이는 중심선과 청백색/푸른 외광을 생성한다.
+- 시전당 약 0.82초간 표시하며 빠르게 나타나고 사라진다. **분기선·연쇄 번개·추가 가닥은 없다.** 기존 `7`번의 황금 낙뢰/예고/착탄 동작을 대체하지 않는다.
+- `Q/E`는 영상 확인용 전류 두께·흔들림을 +0~+3 범위에서 바꾼다. `↑/↓`는 외광 강도를 바꾼다. `R` 자동 발사 / `C` 초기화는 다른 마법과 동일하다. 모두 VFX 시험값으로 본게임 강화 수치와 무관하다.
+- Godot 4.6의 **GL Compatibility** 렌더러에 맞춰 별도 HDR Glow 없이 투명한 덧셈 혼합(shader `blend_add`)으로 구현한다. 실제 광원/조명이나 게임 판정은 없다.
+- **라이선스/범위:** 원본 사이트는 게시된 셰이더 코드·코드 조각을 CC0로 명시한다. 위 파일은 원본 fBm 아이디어를 바탕으로 양 끝점을 고정하고 투명도·다중 발광을 추가한 독립적 개작이다. 영상 이미지나 유료 자산은 포함하지 않는다.
+- **검증:** 코드와 경로만 정적 점검했다. 실제 Godot 4.6 GL Compatibility 셰이더 컴파일과 게임 화면 확인은 필요하다. 기존 `1`~`8`번 VFX, 원본 PNG 및 본게임 `witchlings-mayhem`의 전투 로직은 변경하지 않는다.
+
 ## 파티클 표현 방식
 
 - 기존 세 마법의 비행 및 타격 파티클은 공용 노란 `spark.png`에 의존하지 않고, Godot `Node2D._draw()`의 선/원/다각형과 원본 꽃잎 PNG를 조합합니다.
