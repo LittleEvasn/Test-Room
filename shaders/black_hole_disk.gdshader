@@ -1,7 +1,7 @@
 shader_type canvas_item;
 render_mode blend_mix, unshaded;
 
-// Black hole VFX v4: violet accretion vortex.
+// Black hole VFX v5: halve only the event-horizon radius; preserve the outer vortex.
 // Keep the same mature silhouette from its very first visible frame.
 uniform float u_time = 0.0;
 uniform float u_opacity : hint_range(0.0, 1.0) = 1.0;
@@ -41,6 +41,9 @@ void fragment() {
     vec2 p = (UV - vec2(0.5)) * 2.0;
     float r = length(p) / max(u_scale, 0.025);
     float angle = atan(p.y, p.x);
+    // Inner black void + its bright rim are 50% of their former radius.
+    // Leave the outer disk's r, noise, warp, rotation and outer fade untouched.
+    float core_r = r / 0.5;
 
     // Distort the OUTER silhouette only. Preserve a clear black event horizon.
     // Two different angular frequencies prevent the symmetric portal/donut look.
@@ -62,7 +65,9 @@ void fragment() {
     spiral_phase += smoke * 5.5 - r * 12.5;
     float filament = pow(0.5 + 0.5 * sin(spiral_phase), 4.0);
 
-    float disk_inner = smoothstep(0.335, 0.445, warped_r);
+    // Extend the EXISTING flowing disk inward to fill the area vacated by the core.
+    // Outside the former inner transition all disk values are identical to v4.
+    float disk_inner = smoothstep(0.1675, 0.2875, warped_r);
     float disk_outer = 1.0 - smoothstep(0.70, 0.985, warped_r);
     float disk_mask = disk_inner * disk_outer;
     float turbulence = clamp(0.12 + smoke * 1.13 + detail * 0.24 + filament * 0.25, 0.0, 1.0);
@@ -82,9 +87,9 @@ void fragment() {
     haze *= 0.38 + 0.62 * smoke;
 
     // Pale lavender-white broken rim emphasizes the void.
-    float rim = smoothstep(0.296, 0.329, r) * (1.0 - smoothstep(0.337, 0.379, r));
+    float rim = smoothstep(0.296, 0.329, core_r) * (1.0 - smoothstep(0.337, 0.379, core_r));
     float rim_variation = clamp(0.74 + 0.25 * smoke + 0.14 * sin(angle * 5.0 + u_time * 3.1), 0.45, 1.0);
-    float void_mask = 1.0 - smoothstep(0.298, 0.327, r);
+    float void_mask = 1.0 - smoothstep(0.298, 0.327, core_r);
 
     vec3 rgb = disk_color * intensity;
     rgb += disk_violet.rgb * haze * 0.19;
