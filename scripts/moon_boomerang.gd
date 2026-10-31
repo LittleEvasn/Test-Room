@@ -46,7 +46,8 @@ func _process(delta: float) -> void:
     age += delta
     leg_time += delta
 
-    if has_meta("aux_orbit"):
+    if has_meta("aux_orbit") or has_meta("aux_falling"):
+        # Motion driver owns position; keep spinning art, motes and world trail.
         # Orbit is externally positioned. Keep original trail/mote art without
         # running the outbound/return timers that would end this preview early.
         trail.append(global_position)
