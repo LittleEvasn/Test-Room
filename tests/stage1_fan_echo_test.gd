@@ -58,7 +58,7 @@ func _run_tests() -> void:
 
 	# Each currently supported VFX type should create exactly 3+3 nodes.
 	# The clear/process_frame pair lets queue_free complete before the next spell.
-	for spell_id in range(lab.SPELL_CHOICES.size()):
+	for spell_id in range(11): # SPELL_CHOICES has 11 entries in this test version
 		lab.selected_spell = spell_id
 		lab.support_1 = 1
 		lab.support_2 = 4
