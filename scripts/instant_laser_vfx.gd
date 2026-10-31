@@ -57,7 +57,7 @@ func _draw() -> void:
     draw_line(endpoint + Vector2(0.0, -10.0), endpoint + Vector2(0.0, 10.0),
         Color(0.71, 0.97, 1.0, 0.26 * flash), 1.5, true)
     for offset in [0.18, 0.39, 0.67, 0.84]:
-        var x := MAX_RANGE * offset
-        var shimmer := (0.18 + 0.10 * sin(elapsed * 22.0 + offset * 19.0)) * alpha
+        var x: float = MAX_RANGE * float(offset)
+        var shimmer: float = (0.18 + 0.10 * sin(elapsed * 22.0 + float(offset) * 19.0)) * alpha
         draw_line(Vector2(x - 7.0, -5.0), Vector2(x + 6.0, -5.0),
             Color(0.64, 0.93, 1.0, shimmer), 1.3, true)
