@@ -25,7 +25,7 @@ var stats_label: Label
 var log_label: Label
 
 func _ready() -> void:
-	z_index = -1
+	z_index = 0 # Draw dummies above the arena background, below projectile children.
 	_create_overlay()
 	queue_redraw()
 
