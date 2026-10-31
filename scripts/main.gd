@@ -487,7 +487,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		if in_fall:
 			# Magicraft 1004 fall is an instant landing line: only the ground
 			# endpoint can count as a mock landing, not every airborne segment.
-			var impact_position: Vector2 = spawned_spell.get_fall_endpoint()
+			var impact_position: Vector2 = spawned_spell.call("get_fall_endpoint")
 			harness.check_beam(cast_id, impact_position, impact_position)
 		elif in_orbit:
 			var ring_points := PackedVector2Array()
