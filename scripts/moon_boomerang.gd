@@ -46,6 +46,17 @@ func _process(delta: float) -> void:
     age += delta
     leg_time += delta
 
+    if has_meta("aux_orbit"):
+        # Orbit is externally positioned. Keep original trail/mote art without
+        # running the outbound/return timers that would end this preview early.
+        trail.append(global_position)
+        if trail.size() > MAX_TRAIL:
+            trail.pop_front()
+        _advance_motes(delta)
+        _emit_motes(delta)
+        queue_redraw()
+        return
+
     if not returning:
         var t := minf(1.0, leg_time / OUTBOUND_TIME)
         global_position = _bezier(origin, outbound_control, destination, t)
