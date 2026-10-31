@@ -55,6 +55,12 @@ func _ready() -> void:
     last_world = global_position
     current_velocity = (to_point - from_point).normalized() * PREVIEW_SPEED
 
+func begin_fall_vfx(start: Vector2) -> void:
+    # Preserve world-space trail positions: don't connect the caster to the
+    # first airborne frame with a giant, visually false flame streak.
+    last_world = start
+    current_velocity = Vector2.RIGHT * PREVIEW_SPEED
+
 func _process(delta: float) -> void:
     var dt := minf(delta, 0.06)
     age += dt
