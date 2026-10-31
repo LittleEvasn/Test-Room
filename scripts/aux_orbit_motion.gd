@@ -64,6 +64,10 @@ func _process(delta: float) -> void:
 		# Match a bomb's VFX-only finish to its current orbital location.
 		if spell_id == 1:
 			visual.emit_signal("impacted", visual.global_position, float(visual.get("blast_radius")))
+		elif spell_id == 3 or spell_id == 4:
+			visual.emit_signal("vanished", visual.global_position)
+		elif spell_id == 7:
+			visual.emit_signal("finished")
 		visual.queue_free()
 		queue_free()
 	queue_redraw()
