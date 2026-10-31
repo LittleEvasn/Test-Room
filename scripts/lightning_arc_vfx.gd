@@ -6,7 +6,9 @@ extends Node2D
 signal finished(point: Vector2)
 
 const ARC_SHADER: Shader = preload("res://shaders/lightning_arc.gdshader")
-const LIFE_SECONDS := 0.82
+# Slot 7-inspired strike: 0.12s strong bolt followed by a short fade.
+const BRIGHT_SECONDS := 0.12
+const LIFE_SECONDS := 0.30
 const STRIP_HEIGHT := 190.0
 
 var _start_point := Vector2.ZERO
@@ -41,12 +43,14 @@ func _ready() -> void:
     _shader_material = ShaderMaterial.new()
     _shader_material.shader = ARC_SHADER
     _shader_material.set_shader_parameter("phase_offset", randf_range(-40.0, 40.0))
-    # Distance-aware frequency, displacement and glow scale; ONLY slot 9 opts in.
+    # Slot 7's fBm, width, jitter and speed are the base style. Only the
+    # number and size of bends adapt to range; the electrical core stays thick.
     _shader_material.set_shader_parameter("arc_length_px", _bolt_length)
     _shader_material.set_shader_parameter("distance_adaptation", 1.0)
-    _shader_material.set_shader_parameter("body_crawl", 1.0)
-    _shader_material.set_shader_parameter("offset_strength", 0.155 + 0.012 * float(_visual_rank))
-    _shader_material.set_shader_parameter("core_width", 0.0085 + 0.0014 * float(_visual_rank))
+    _shader_material.set_shader_parameter("body_crawl", 0.0)
+    _shader_material.set_shader_parameter("speed", 3.9)
+    _shader_material.set_shader_parameter("offset_strength", 0.17 + 0.012 * float(_visual_rank))
+    _shader_material.set_shader_parameter("core_width", 0.013 + 0.0014 * float(_visual_rank))
     _shader_material.set_shader_parameter("glow_strength", clampf(0.35 + 0.65 * _glow_multiplier, 0.0, 2.4))
     _shader_material.set_shader_parameter("life_alpha", 0.0)
     strip.material = _shader_material
@@ -59,9 +63,12 @@ func _process(delta: float) -> void:
         queue_free()
         return
 
-    var attack := smoothstep(0.0, 0.06, _elapsed)
-    var release := 1.0 - smoothstep(LIFE_SECONDS - 0.19, LIFE_SECONDS, _elapsed)
-    _visible_amount = attack * release
+    # Reproduce slot 7's sharp, instantly visible 0.12s strike peak, then
+    # a brief trailing fade so the connecting arc is still readable.
+    var t: float = clampf(_elapsed / BRIGHT_SECONDS, 0.0, 1.0)
+    var strike_intensity: float = 1.0 - smoothstep(0.13, 1.0, t) * 0.60
+    var tail: float = 1.0 - smoothstep(BRIGHT_SECONDS, LIFE_SECONDS, _elapsed)
+    _visible_amount = strike_intensity * tail
     _shader_material.set_shader_parameter("life_alpha", _visible_amount)
     queue_redraw()
 

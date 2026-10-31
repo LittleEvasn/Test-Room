@@ -52,11 +52,13 @@ void fragment() {
 
     // The earlier UV-only frequencies caused 26 tiny bends even on a 30px bolt.
     // In slot 9, the number of bends now follows its physical screen length.
-    float frequency_ratio = clamp(arc_length_px / 950.0, 0.04, 1.50);
-    // Preserve a few visible curves even when the bolt spans only a short distance.
-    // A strict proportional frequency could make close-range fBm nearly straight.
-    float broad_frequency = mix(6.0, clamp(6.0 * frequency_ratio, 2.0, 9.0), distance_adaptation);
-    float fine_frequency = mix(26.0, clamp(26.0 * frequency_ratio, 5.0, 39.0), distance_adaptation);
+    // One 390px-long arc has the same 6 / 26 fBm frequencies as slot 7.
+    // Slot 9 opts into a real-pixel-distance frequency scale, preserving
+    // roughly the same bend density at every range without short-range folding.
+    // Slot 7 still has distance_adaptation=0 and is therefore unchanged.
+    float frequency_ratio = clamp(arc_length_px / 390.0, 0.04, 3.0);
+    float broad_frequency = mix(6.0, clamp(6.0 * frequency_ratio, 2.0, 18.0), distance_adaptation);
+    float fine_frequency = mix(26.0, clamp(26.0 * frequency_ratio, 5.0, 78.0), distance_adaptation);
 
     float broad = fbm(vec2(progress * broad_frequency + phase_offset,
         time * mix(1.0, 0.64, body_crawl))) - 0.5;
