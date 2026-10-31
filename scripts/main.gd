@@ -183,8 +183,10 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _auto_interval() -> float:
+	if _has_support(FALL_INDEX):
+		return 2.0 # Separate landing animations instead of stacking warnings.
 	match selected_spell:
-		3: return 6.3 if _has_support(FAN_INDEX) or _has_support(ECHO_INDEX) else 5.2
+		3: return 6.3 if _has_support(FAN_INDEX) or _has_support(ECHO_INDEX) or _has_support(ORBIT_INDEX) else 5.2
 		4: return 2.6
 		5: return 1.15
 		6:
@@ -456,8 +458,17 @@ func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, bran
 	landed_context["_fall_arrived"] = true
 	# Non-orbit attacks start just above the impact point, rather than flying
 	# across the entire arena again after descent.
-	landed_context["origin"] = landing if bool(context["orbit"]) else landing + Vector2(0.0, -65.0)
-	_spawn_single_cast(landed_context, landing, is_echo, branch, branches)
+	if bool(context["orbit"]):
+		landed_context["origin"] = landing
+		var outward: Vector2 = landing - Vector2(context["origin"])
+		if outward.length_squared() < 0.001:
+			outward = Vector2.RIGHT
+		# Keep a distant internal destination so projectile-specific arrival
+		# checks cannot immediately kill the new orbiting projectile.
+		_spawn_single_cast(landed_context, landing + outward.normalized() * 1200.0, is_echo, branch, branches)
+	else:
+		landed_context["origin"] = landing + Vector2(0.0, -65.0)
+		_spawn_single_cast(landed_context, landing, is_echo, branch, branches)
 
 func _on_laser_finished() -> void:
 	laser_finished += 1
