@@ -95,8 +95,9 @@ func _process(delta: float) -> void:
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
 	elif selected_spell == 7:
-		status_label.text = "선택 %s / VFX 크기 %d  |  발자국 %d  생성된 불꽃 %d  활성 불꽃 %d  종료 경로 %d  |  입자 %.1fx  자동 %s" % [
-			spell_name, ember_rank, fired_count, ember_steps, get_tree().get_nodes_in_group("vfx_ember_patch").size(), ember_finished,
+		status_label.text = "선택 %s +%d (반경 %.0f / 유지 %.1fs)  |  경로 %d  생성 %d  활성 %d  종료 %d  |  입자 %.1fx  자동 %s" % [
+			spell_name, ember_rank, float(EMBER_TRAIL_SCRIPT.RADII[ember_rank]), float(EMBER_TRAIL_SCRIPT.LIFETIMES[ember_rank]),
+			fired_count, ember_steps, get_tree().get_nodes_in_group("vfx_ember_patch").size(), ember_finished,
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
 	elif selected_spell == 8:

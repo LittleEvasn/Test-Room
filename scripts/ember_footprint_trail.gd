@@ -1,6 +1,6 @@
 extends Node2D
-## Test-Room preview: staggered footprints on a short path toward the aim point.
-## Each patch is a separate scene-independent Node2D, reusable in the main game.
+## A test-only eight-step walk. Each fire patch is separately reusable.
+## Preview +0..+3 radius/duration match current ember_path stage data.
 
 signal step_ignited(at: Vector2)
 signal finished()
@@ -8,7 +8,8 @@ signal finished()
 const PATCH_SCRIPT = preload("res://scripts/ember_footprint_fire.gd")
 const STEP_COUNT := 8
 const STEP_GAP := 0.19
-const SCALES := [0.85, 1.0, 1.15, 1.30] # VFX comparison only, not spell upgrades.
+const RADII := [24.0, 30.0, 36.0, 42.0]
+const LIFETIMES := [1.8, 2.2, 2.6, 3.0]
 
 var from_point: Vector2
 var to_point: Vector2
@@ -37,7 +38,8 @@ func _process(delta: float) -> void:
     while next_step < STEP_COUNT and elapsed >= float(next_step) * STEP_GAP:
         _ignite(next_step)
         next_step += 1
-    if next_step == STEP_COUNT and elapsed >= float(STEP_COUNT - 1) * STEP_GAP + PATCH_SCRIPT.BASE_LIFETIME + 0.7:
+    var last_step_time := float(STEP_COUNT - 1) * STEP_GAP
+    if next_step == STEP_COUNT and elapsed > last_step_time + float(LIFETIMES[preview_rank]) + 0.27:
         finished.emit()
         queue_free()
 
@@ -46,10 +48,10 @@ func _ignite(index: int) -> void:
     var center := to_point - direction * track_length * (1.0 - ratio)
     var side := direction.orthogonal() * (9.0 if index % 2 == 0 else -9.0)
     var spawn_point := center + side + Vector2(rng.randf_range(-4.0, 4.0), rng.randf_range(-4.0, 4.0))
-
     var patch = PATCH_SCRIPT.new()
     patch.position = spawn_point
-    patch.configure(float(SCALES[preview_rank]) * rng.randf_range(0.88, 1.12),
-        density, PATCH_SCRIPT.BASE_LIFETIME + rng.randf_range(-0.20, 0.25))
+    var scale_for_radius := float(RADII[preview_rank]) / float(RADII[1])
+    patch.configure(scale_for_radius * rng.randf_range(0.94, 1.06),
+        density, float(LIFETIMES[preview_rank]))
     add_child(patch)
     step_ignited.emit(spawn_point)
