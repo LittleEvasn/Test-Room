@@ -52,6 +52,7 @@ var ember_finished := 0
 var fireball_rank := 0
 var fireball_impacts := 0
 var fireball_finished := 0
+var fireball_motion := 0 # 0 straight, 1 orbit, 2 curving
 
 var title_label: Label
 var info_label: Label
@@ -107,8 +108,8 @@ func _process(delta: float) -> void:
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
 	elif selected_spell == 9:
-		status_label.text = "선택 %s +%d | 폭발 반경 %.0f | 비행 %d  착탄 %d  완료 %d | 불티 %.1fx 자동 %s" % [
-			spell_name, fireball_rank, float(FIREBALL_SCRIPT.RADII[fireball_rank]), fired_count,
+		status_label.text = "선택 %s +%d | %s | 폭발 %.0f | 발사 %d  폭발 %d  종료 %d | 불꽃 %.1fx 자동 %s  [F 이동방식]" % [
+			spell_name, fireball_rank, ["직선 비행", "공전", "급선회"][fireball_motion], float(FIREBALL_SCRIPT.RADII[fireball_rank]), fired_count,
 			fireball_impacts, fireball_finished, particle_multiplier, "ON" if autofire else "OFF"
 		]
 	elif selected_spell == 8:
@@ -132,7 +133,7 @@ func _auto_interval() -> float:
 			return 1.55 if thunder_rank <= 1 else (2.20 if thunder_rank == 2 else 2.85)
 		7: return 4.4
 		8: return 1.15
-		9: return 1.35
+		9: return 5.20 if fireball_motion == 1 else 2.50
 	return fire_interval
 
 func shoot(replace_hole: bool = false) -> void:
@@ -211,7 +212,7 @@ func shoot(replace_hole: bool = false) -> void:
 		if get_tree().get_nodes_in_group("vfx_fireball").size() >= 6:
 			return
 		var fireball = FIREBALL_SCRIPT.new()
-		fireball.configure(START_POINT, target_point, particle_multiplier, fireball_rank)
+		fireball.configure(START_POINT, target_point, particle_multiplier, fireball_rank, fireball_motion)
 		add_child(fireball)
 		fireball.add_to_group("vfx_fireball")
 		fireball.impacted.connect(_on_fireball_impact.bind(fireball_rank))
@@ -408,6 +409,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F:
 				if selected_spell == 7:
 					ember_style = (ember_style + 1) % 3
+				elif selected_spell == 9:
+					fireball_motion = (fireball_motion + 1) % 3
+					fire_clock = 0.05
 			KEY_SPACE:
 				shoot(true)
 			KEY_T:
@@ -494,7 +498,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크  ·  0 화염구\nQ/E 단계  ·  F 불꽃 A/B/C  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
+	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크  ·  0 화염구\nQ/E 단계  ·  F 불꽃 A/B/C / 화염구 직선·공전·급선회  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))

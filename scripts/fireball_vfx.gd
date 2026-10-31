@@ -1,122 +1,195 @@
 extends Node2D
-## Fireball projectile VFX only. A connected turbulent shader, no PNGs.
-## Base game has 270px/s; the Lab uses speeded-up travel to reach its
-## deliberately distant test reticle before the projectile expires.
+## Fireflies-inspired kinetic fireball — ORIGINAL Godot recreation.
+## Source study: NestGameStudio/Fireflies Player.prefab (Unity TrailRenderer)
+## + lookAlongVelocity.cs + scaleByVelocity.cs.
+## Particles keep their world positions; the source can orbit, turn or bounce.
+## No original Fireflies game art/code is bundled or copied.
 signal impacted(at: Vector2)
 signal finished()
 
-const BODY_SHADER = preload("res://shaders/fireball_body.gdshader")
+const FRAGMENT_TEXTURE = preload("res://scripts/fireflies_flame_fragment.gd")
 const RADII := [50.0, 65.0, 80.0, 100.0]
 const PREVIEW_SPEED := 590.0
-const MAX_PREVIEW_LIFE := 2.45
+const MAX_STRAIGHT_LIFE := 2.45
+const ORBIT_LIFE := 4.95
 
 var from_point := Vector2.ZERO
 var to_point := Vector2.ZERO
-var stage := 0
 var density := 1.0
-var velocity := Vector2.RIGHT
-var distance := 1.0
-var traveled := 0.0
-var elapsed := 0.0
-var shader_material: ShaderMaterial
-var sparks: Array[Dictionary] = []
-var streaks: Array[Dictionary] = []
-var spawn_clock := 0.0
+var rank := 0
+var motion := 0 # 0 straight, 1 orbit, 2 curving
+var age := 0.0
+var dying := false
+var linger := 0.0
+var distance := 0.0
+var last_world := Vector2.ZERO
+var current_velocity := Vector2.RIGHT
+var particles: Array[Dictionary] = []
+var flame_images: Array[Texture2D] = []
 var rng := RandomNumberGenerator.new()
-var done := false
+var pulse_seed := 0.0
 
-func configure(origin: Vector2, target: Vector2, multiplier: float, rank: int) -> void:
+func configure(origin: Vector2, target: Vector2, multiplier: float, cast_rank: int, travel_mode: int = 0) -> void:
     from_point = origin
     to_point = target
     density = clampf(multiplier, 0.0, 3.0)
-    stage = clampi(rank, 0, 3)
+    rank = clampi(cast_rank, 0, 3)
+    motion = clampi(travel_mode, 0, 2)
 
 func _ready() -> void:
     rng.randomize()
-    position = from_point
-    velocity = (to_point - from_point).normalized()
-    if velocity.length_squared() < 0.01:
-        velocity = Vector2.RIGHT
+    pulse_seed = rng.randf_range(0.0, TAU)
+    flame_images = [
+        FRAGMENT_TEXTURE.get_flame(0),
+        FRAGMENT_TEXTURE.get_flame(1),
+        FRAGMENT_TEXTURE.get_flame(2)
+    ]
     distance = from_point.distance_to(to_point)
-    rotation = velocity.angle()
-    scale = Vector2.ONE * (0.78 + float(stage) * 0.09)
-    shader_material = ShaderMaterial.new()
-    shader_material.shader = BODY_SHADER
-    shader_material.set_shader_parameter("seed", rng.randf_range(0.0, 100.0))
-    shader_material.set_shader_parameter("vigor", rng.randf_range(0.9, 1.15))
-    shader_material.set_shader_parameter("appear", 0.0)
-    var face := ColorRect.new()
-    face.color = Color.WHITE
-    face.position = Vector2(-149.0, -62.0)
-    face.size = Vector2(224.0, 124.0)
-    face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    face.material = shader_material
-    add_child(face)
+    if motion == 1:
+        position = from_point + Vector2(134.0 + float(rank) * 10.0, 0.0)
+    else:
+        position = from_point
+    last_world = global_position
+    current_velocity = (to_point - from_point).normalized() * PREVIEW_SPEED
 
 func _process(delta: float) -> void:
-    if done:
+    var dt := minf(delta, 0.06)
+    age += dt
+    _update_fragments(dt)
+    if dying:
+        linger -= dt
+        queue_redraw()
+        if linger <= 0.0:
+            queue_free()
         return
-    elapsed += delta
-    var step := minf(PREVIEW_SPEED * delta, maxf(0.0, distance - traveled))
-    traveled += step
-    position = from_point + velocity * traveled
-    shader_material.set_shader_parameter("appear", minf(elapsed / 0.12, 1.0))
-    spawn_clock += delta * (30.0 + density * 23.0)
-    while spawn_clock >= 1.0:
-        spawn_clock -= 1.0
-        _add_spark()
-    for index in range(sparks.size() - 1, -1, -1):
-        var spark: Dictionary = sparks[index]
-        spark["life"] = float(spark["life"]) - delta
-        spark["pos"] = Vector2(spark["pos"]) + Vector2(spark["vel"]) * delta
-        spark["vel"] = Vector2(spark["vel"]) * (1.0 - minf(delta * 1.7, 0.5))
-        if float(spark["life"]) <= 0.0:
-            sparks.remove_at(index)
-        else:
-            sparks[index] = spark
-    # Short fiery wake made from continuous streaks, not separate round blobs.
-    streaks.push_front({"pos": position, "age": 0.0})
-    if streaks.size() > 14:
-        streaks.pop_back()
-    for index in range(streaks.size()):
-        var s: Dictionary = streaks[index]
-        s["age"] = float(s["age"]) + delta
-        streaks[index] = s
-    queue_redraw()
-    if traveled >= distance - 0.1 or elapsed >= MAX_PREVIEW_LIFE:
-        _finish()
 
-func _add_spark() -> void:
-    if density <= 0.0 or sparks.size() >= 42:
+    var previous := global_position
+    match motion:
+        1:
+            var theta := age * 2.65
+            var radius := 134.0 + float(rank) * 10.0
+            position = from_point + Vector2(cos(theta), sin(theta)) * radius
+        2:
+            var direction := (to_point - from_point).normalized()
+            if direction.length_squared() < 0.001:
+                direction = Vector2.RIGHT
+            var progress := minf(age * PREVIEW_SPEED / maxf(distance, 1.0), 1.0)
+            var sideways := sin(progress * TAU * 2.2) * sin(progress * PI) * 77.0
+            position = from_point.lerp(to_point, progress) + direction.orthogonal() * sideways
+        _:
+            var direction := (to_point - from_point).normalized()
+            if direction.length_squared() < 0.001:
+                direction = Vector2.RIGHT
+            position = from_point + direction * minf(age * PREVIEW_SPEED, distance)
+
+    var now := global_position
+    current_velocity = (now - previous) / maxf(dt, 0.0001)
+    if current_velocity.length_squared() > 0.01:
+        _emit_along(previous, now)
+    last_world = now
+    queue_redraw()
+    if (motion == 1 and age >= ORBIT_LIFE) or (motion != 1 and
+            (now.distance_to(to_point) < 1.0 or age >= MAX_STRAIGHT_LIFE)):
+        _impact()
+
+func _emit_along(a: Vector2, b: Vector2) -> void:
+    if density <= 0.0:
         return
-    var side := velocity.orthogonal()
-    var point := position - velocity * rng.randf_range(13.0, 34.0) + side * rng.randf_range(-14.0, 14.0)
-    var life := rng.randf_range(0.22, 0.58)
-    sparks.append({
-        "pos": point,
-        "vel": -velocity * rng.randf_range(45.0, 155.0) + side * rng.randf_range(-45.0, 45.0),
-        "life": life, "max": life, "size": rng.randf_range(1.2, 3.0)
-    })
+    var step_distance := a.distance_to(b)
+    var amount := clampi(roundi(step_distance * 0.245 * density), 0, 24)
+    if amount <= 0:
+        return
+    var heading := current_velocity.normalized()
+    var tangent := heading.orthogonal()
+    for k in range(amount):
+        var fraction := (float(k) + rng.randf_range(0.2, 0.8)) / float(amount)
+        var location := a.lerp(b, fraction)
+        var hot := rng.randf() < 0.63
+        var life := rng.randf_range(0.23, 0.41) if hot else rng.randf_range(0.38, 0.60)
+        var vel := heading * rng.randf_range(-58.0, 42.0)
+        vel += tangent * rng.randf_range(-64.0, 64.0)
+        vel += current_velocity * rng.randf_range(0.015, 0.075)
+        var width := rng.randf_range(9.0, 17.0) if hot else rng.randf_range(4.2, 11.0)
+        particles.append({
+            "p": location + tangent * rng.randf_range(-5.0, 5.0),
+            "v": vel,
+            "age": rng.randf_range(0.0, 0.045),
+            "life": life,
+            "width": width * (0.84 + float(rank) * 0.065),
+            "rot": rng.randf_range(-PI, PI),
+            "turn": rng.randf_range(-2.5, 2.5),
+            "variation": rng.randi_range(0, 2),
+            "seed": rng.randf_range(0.0, TAU),
+            "hot": hot
+        })
+    # Bounded draw work; old fragments disappear first.
+    if particles.size() > 280:
+        particles = particles.slice(particles.size() - 280)
+
+func _update_fragments(dt: float) -> void:
+    for i in range(particles.size() - 1, -1, -1):
+        var frag: Dictionary = particles[i]
+        frag["age"] = float(frag["age"]) + dt
+        if float(frag["age"]) >= float(frag["life"]):
+            particles.remove_at(i)
+            continue
+        var t: float = float(frag["age"]) / float(frag["life"])
+        var swirl := Vector2(
+            sin(float(frag["seed"]) + age * 14.0),
+            cos(float(frag["seed"]) * 0.6 + age * 11.0)
+        ) * (24.0 * t)
+        frag["p"] = Vector2(frag["p"]) + (Vector2(frag["v"]) + swirl + Vector2(0.0, -11.0)) * dt
+        frag["v"] = Vector2(frag["v"]) * maxf(0.0, 1.0 - dt * 2.7)
+        frag["rot"] = float(frag["rot"]) + float(frag["turn"]) * dt
+        particles[i] = frag
+
+func _fragment_color(life_fraction: float, is_hot: bool) -> Color:
+    var t := clampf(life_fraction, 0.0, 1.0)
+    var color: Color
+    if t < 0.30:
+        color = Color("fff9ac").lerp(Color("ffdb45"), t / 0.30)
+    elif t < 0.65:
+        color = Color("ffdb45").lerp(Color("ff8a20"), (t - 0.30) / 0.35)
+    else:
+        color = Color("ff8a20").lerp(Color("d72a20"), (t - 0.65) / 0.35)
+    if is_hot and t < 0.16:
+        color = Color("fffef0").lerp(color, t / 0.16)
+    color.a = pow(1.0 - t, 0.56) * minf(1.0, (1.0 - t) * 5.0) * 0.96
+    return color
 
 func _draw() -> void:
-    for index in range(streaks.size() - 1):
-        var a: Vector2 = to_local(Vector2(streaks[index]["pos"]))
-        var b: Vector2 = to_local(Vector2(streaks[index + 1]["pos"]))
-        var fade := 1.0 - float(index) / float(maxi(streaks.size(), 1))
-        draw_line(a, b, Color(1.0, 0.29 + 0.4 * fade, 0.035, fade * 0.25), 15.0 * fade, true)
-        draw_line(a, b, Color(1.0, 0.80, 0.19, fade * 0.24), 4.0 * fade, true)
-    for spark in sparks:
-        var point: Vector2 = to_local(Vector2(spark["pos"]))
-        var dir: Vector2 = Vector2(spark["vel"]).normalized()
-        var alpha: float = float(spark["life"]) / float(spark["max"])
-        draw_line(point, point - dir * (4.0 + float(spark["size"]) * 1.4),
-            Color(1.0, 0.64 + 0.27 * alpha, 0.16, alpha * 0.85),
-            maxf(float(spark["size"]) * 0.65, 0.7), true)
+    # Particle positions are in world space. The emitter node moves freely.
+    # Unlike a rotated PNG, previously spawned fragments NEVER rotate with it.
+    for frag in particles:
+        var t: float = float(frag["age"]) / float(frag["life"])
+        var color := _fragment_color(t, bool(frag["hot"]))
+        var width := float(frag["width"]) * (1.0 + 0.22 * sin(t * PI))
+        width *= (1.0 - 0.55 * t * t)
+        var texture: Texture2D = flame_images[int(frag["variation"])]
+        draw_set_transform(to_local(Vector2(frag["p"])), float(frag["rot"]), Vector2.ONE)
+        var glow_extent := width * 1.55
+        draw_texture_rect(texture, Rect2(Vector2(-glow_extent, -glow_extent),
+            Vector2.ONE * glow_extent * 2.0), false,
+            Color(1.0, 0.25, 0.025, color.a * 0.13))
+        draw_texture_rect(texture, Rect2(Vector2(-width, -width),
+            Vector2.ONE * width * 2.0), false, color)
+        if bool(frag["hot"]) and t < 0.30:
+            draw_circle(Vector2(-width * 0.08, -width * 0.10), width * 0.24,
+                Color(1.0, 1.0, 0.82, (0.30 - t) * 1.55))
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+    if not dying:
+        var pulse := 1.0 + sin(age * 24.0 + pulse_seed) * 0.07
+        var r := (7.7 + float(rank) * 0.6) * pulse
+        draw_circle(Vector2.ZERO, r * 2.45, Color(1.0, 0.25, 0.018, 0.065))
+        draw_circle(Vector2.ZERO, r * 1.62, Color(1.0, 0.56, 0.09, 0.20))
+        draw_circle(Vector2.ZERO, r * 1.20, Color(1.0, 0.78, 0.25, 0.92))
+        draw_circle(Vector2.ZERO, r * 0.81, Color(1.0, 0.97, 0.77, 1.0))
+        draw_circle(Vector2.ZERO, r * 0.44, Color(1.0, 1.0, 0.995, 1.0))
 
-func _finish() -> void:
-    if done:
+func _impact() -> void:
+    if dying:
         return
-    done = true
+    dying = true
+    linger = 0.67
     impacted.emit(global_position)
     finished.emit()
-    queue_free()

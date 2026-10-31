@@ -273,3 +273,21 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 - **테스트 전용 비행 속도는 590px/s**다. Test-Room의 시작점과 기본 목표는 약 1,130px 떨어져 있어서 본게임 속도 270px/s를 그대로 쓰면 기본 투사체 수명 안에 표적에 닿지 않기 때문이다. **본게임의 공격 속도는 변경하지 않는다.** 실제 게임에 이식할 때는 기존 270px/s 이동과 충돌·만료 처리에 시각 효과만 연결한다.
 - 기존 잔불 장판 A/B/C 및 1~9번 VFX 구현, 본게임 저장소는 변경하지 않는다. 신규: `scripts/fireball_vfx.gd`, `scripts/fireball_impact_vfx.gd`, `shaders/fireball_body.gdshader`, `shaders/fireball_impact.gdshader`.
 - **검증:** GitHub 변경사항/연결/수치 정적 확인. 현 환경에는 Godot 4.6 실행 파일이 없어 실제 GL Compatibility 셰이더 컴파일과 렌더링·성능 확인은 별도 필요.
+
+
+## Fireflies 원본 연구 기반 화염구 v2 (2026-10-31)
+
+**본게임 불 관련 기존 코드는 건드리지 않음. Test-Room 0번 화염구 비행 VFX만 교체함.**
+
+- 대상: https://nestgamestudio.itch.io/fireflies
+- 원본 기술 자료: https://github.com/NestGameStudio/Fireflies (2020-2021 공개 Unity 프로젝트)
+  - `Fireflies/Assets/2 - Prefabs/Player.prefab`: Unity TrailRenderer `m_Time: 0.3`, `m_MinVertexDistance: 0.1`, widthCurve -> 0
+  - `Fireflies/Assets/3 - Scripts/Personagem/lookAlongVelocity.cs`: Rigidbody2D velocity에 따른 회전 보간
+  - `Fireflies/Assets/3 - Scripts/Personagem/scaleByVelocity.cs`: 속도에 따른 시각적 스케일 변형
+  - `Fireflies/Assets/2 - Prefabs/Particles/FogoParticle_2D.prefab`: Unity ParticleSystem 존재. 다만 DeathAnimation에서 생성하는 용도로 확인되었으며 **2018/2021 브라우저 판의 비행 화염과 동일한 설정이라는 증거는 없음.**
+- **구현 원리 적용:** 움직임에 맞춰 불꽃 조각이 세계 좌표에 독립 생성·이동·소멸하며 황백색→노랑→주황→빨강으로 식는다. 비행 방향이 갑자기 바뀌어도 이미 생성한 조각은 본체와 함께 회전하지 않는다. 짧고 밝은 흰 중심핵은 탄체 위치에 고정된다.
+- **기술:** `scripts/fireflies_flame_fragment.gd`가 원본 PNG 복사 없이 불규칙한 흰색 불꽃 조각 알파 텍스처 3종을 생성한다. `scripts/fireball_vfx.gd`는 파편의 세계 좌표, 속도, 난류, 수명, 그라디언트를 관리한다. `scripts/fireball_impact_vfx.gd`가 별도 밝은 화염 파편 폭발을 제공한다. 구형 화염구 셰이더는 파일로 보관하지만 해당 Test-Room 화염구는 사용하지 않는다.
+- **중요:** Fireflies 원본 GitHub 최상위에서 재사용 허용 라이선스가 확인되지 않았으므로 게임 아트/소스 그대로 복사하지 않았다. 현재 구현은 원본 효과의 동작 원리를 독립적으로 재구성한 버전이다. 원본과 동일한 렌더를 보장하거나 실제 유체 해석을 수행한다고 주장하지 않는다.
+- 키 `0`: 화염구. 키 `F`: **직선 비행 → 공전 → 급선회** 순환. `Q/E`: 4단계 폭발 범위. 클릭/Space: 한 번 시전. `R`: 자동 발사. `C`: 정리. `↑/↓`: 조각 밀도. 8번 잔불 발자국의 F A/B/C 기능은 그대로 유지.
+- 직선·급선회: Test-Room용 590px/s 실험 속도. 공전: 시작점 중심, 반지름 134px(+강화별 10px), 각속도 2.65rad/s, 약 4.95초. **본게임 fireball 실제 속도 270px/s 및 피해/화상/폭발 수치는 변경하지 않았다.**
+- 구현 소스 정적 검증만 완료. Godot 4.6 GL Compatibility 실제 실행·렌더러 테스트는 로컬에서 필요하다.
