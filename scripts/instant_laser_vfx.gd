@@ -12,20 +12,55 @@ var direction := Vector2.RIGHT
 var glow_scale := 1.0
 var elapsed := 0.0
 var orbit_mode := false
+var fall_mode := false
+var fall_path := PackedVector2Array()
 const ORBIT_RADIUS := 175.0
 const ORBIT_SEGMENTS := 36
 
-func configure(origin: Vector2, aim_at: Vector2, particle_multiplier: float = 1.0, is_orbit: bool = false) -> void:
+func configure(origin: Vector2, aim_at: Vector2, particle_multiplier: float = 1.0, is_orbit: bool = false, is_fall: bool = false) -> void:
     start_point = origin
     orbit_mode = is_orbit
+    fall_mode = is_fall
+    fall_path = make_fall_path(origin, aim_at, is_orbit) if fall_mode else PackedVector2Array()
     direction = (aim_at - origin).normalized()
     if direction.length_squared() < 0.001:
         direction = Vector2.RIGHT
     glow_scale = clampf(particle_multiplier, 0.0, 3.0)
 
+## Magicraft 1004: normal fall is a ground-reaching beam, not a projectile.
+## Rotation+fall: about 15 increments of 10 degrees with descending Z.
+## These are 2D projected paths, not the original Unity 3D units/shaders.
+static func make_fall_path(origin: Vector2, target: Vector2, is_orbit: bool) -> PackedVector2Array:
+    var path := PackedVector2Array()
+    var forward := (target - origin).normalized()
+    if forward.length_squared() < 0.001:
+        forward = Vector2.RIGHT
+    if not is_orbit:
+        var start := target - forward * 112.0 + Vector2(0.0, -350.0)
+        path.append(start - origin)
+        path.append(target - origin)
+    else:
+        var heading := forward.angle()
+        for i in range(16):
+            var t: float = float(i) / 15.0
+            var theta: float = heading + deg_to_rad(10.0) * float(i)
+            var world := origin + Vector2.from_angle(theta) * ORBIT_RADIUS
+            world.y -= 350.0 * (1.0 - t) * 0.72
+            path.append(world - origin)
+    return path
+
+func get_fall_path_world() -> PackedVector2Array:
+    var points := PackedVector2Array()
+    for p in fall_path:
+        points.append(start_point + p)
+    return points
+
+func get_fall_endpoint() -> Vector2:
+    return start_point + fall_path[fall_path.size() - 1] if not fall_path.is_empty() else start_point
+
 func _ready() -> void:
     position = start_point
-    rotation = 0.0 if orbit_mode else direction.angle()
+    rotation = 0.0 if orbit_mode or fall_mode else direction.angle()
     z_index = 5
     queue_redraw()
 
@@ -42,6 +77,22 @@ func _draw() -> void:
     if alpha <= 0.001:
         return
     var glow := clampf(glow_scale, 0.0, 2.5)
+    if fall_mode:
+        if fall_path.size() < 2:
+            return
+        # Fall beam is constructed in one frame; no falling proxy sphere or
+        # a delayed normal straight-beam recast on ground impact.
+        draw_polyline(fall_path, Color(0.06, 0.59, 1.0, 0.045 * alpha * glow), 37.0, true)
+        draw_polyline(fall_path, Color(0.15, 0.77, 1.0, 0.12 * alpha * glow), 20.0, true)
+        draw_polyline(fall_path, Color(0.34, 0.85, 1.0, 0.42 * alpha), 9.0, true)
+        draw_polyline(fall_path, Color(0.78, 0.98, 1.0, 0.92 * alpha), 4.0, true)
+        draw_polyline(fall_path, Color(1.0, 1.0, 1.0, 0.95 * alpha), 1.8, true)
+        var ground := fall_path[fall_path.size() - 1]
+        var ring_alpha := (1.0 - smoothstep(0.05, VFX_SECONDS, elapsed)) * alpha
+        draw_arc(ground, 20.0 + 18.0 * elapsed / VFX_SECONDS, 0.0, TAU,
+            40, Color(0.49, 0.85, 1.0, 0.72 * ring_alpha), 2.8, true)
+        draw_circle(ground, 7.0, Color(0.85, 0.97, 1.0, 0.30 * ring_alpha))
+        return
     if orbit_mode:
         # Magicraft 1004 LaserJob: 36 line segments x 10deg,
         # an instantaneous 360-degree curved beam around the caster.
