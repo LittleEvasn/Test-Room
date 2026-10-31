@@ -24,11 +24,15 @@ func configure(start_pos: Vector2, end_pos: Vector2, density: float) -> void:
 func _process(delta: float) -> void:
     age += delta
     var travel := SPEED * delta
-    if global_position.distance_to(destination) <= travel + 10.0:
-        impacted.emit(destination)
-        queue_free()
-        return
-    global_position += heading * travel
+    if has_meta("aux_falling"):
+        # Fall driver owns only movement; keep the normal sparkling trail and spin.
+        heading = Vector2(get_meta("aux_fall_direction", heading))
+    else:
+        if global_position.distance_to(destination) <= travel + 10.0:
+            impacted.emit(destination)
+            queue_free()
+            return
+        global_position += heading * travel
     spawn_accumulator += delta * 55.0 * emission_density
     while spawn_accumulator >= 1.0 and particles.size() < 120:
         spawn_accumulator -= 1.0
