@@ -239,3 +239,14 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 **자료 및 판단:** Federico Bellucci의 [Procedural Fire](https://blog.febucci.com/2019/05/fire-shader/), [Godot 2D Fire Mask](https://godotshaders.com/shader/2d-fire-mask/), [Anime Style Fire 2D](https://godotshaders.com/shader/anime-style-fire-2d/)의 서로 연결된 화염 마스크와 시간 흐름을 참고했다. Unity/Magicraft 원본 텍스처는 일절 반입하지 않았다.
 
 **검증 상태:** Godot 4.6 GL Compatibility 엔진의 실제 렌더/화염 애니메이션 및 컴파일 실행 검증은 수행하지 못했다. GitHub 정적 파일 검증과 UI 1~9 및 본게임 코드 보존을 확인한다. 로컬에서는 특히 B 아틀라스 최초 생성 지연, 12fps 반복 경계, A 노이즈 준비 시점, A/B/C의 지속시간, 여러 장판 오버드로우와 FPS를 확인해야 한다.
+
+
+## 잔불 발자국 VFX v5 — 산 모양 제거 (2026-10-31)
+
+사용자 스크린샷에서 v4의 연결 화염이 불 대신 **폭과 높이만 다른 삼각형/산**으로 보이는 문제가 확인됨.
+
+- A(마스크): 고정된 3갈래 `tongue()` 및 폭이 일정하게 좁아지는 cone 수식을 **삭제**. 시간·x에 따라 달라지는 불규칙 최고높이(crest), 큰 상승 노이즈/작은 상승 노이즈, 부서지는 상단과 움직이지 않는 바닥을 구현.
+- B(플립북): 동일한 산 실루엣을 만들던 `LOBE_CENTERS/WIDTHS/HEIGHTS`와 3개 원뿔 루프를 **삭제**. 12프레임마다 유기적으로 변하는 화염 높이 윤곽과 밝은 내부 필드를 코드로 생성. 프레임 변화는 sin/cos 주기를 사용.
+- A/B 쿼드는 높이를 88에서 72/70px로 낮춰 더 넓은 바닥 화염의 비율을 만든다. 화염 밑면은 페이드 처리해 직선 절단을 완화. C는 B 혼합 강도를 0.48→0.32로 줄인다.
+- **기존 F 비교(A/B/C), 8번 경로, Q/E 크기·수명, 연기·불티, 7번 벼락, 9번 번개 아크와 본게임은 유지.**
+- **검증 상태:** Python으로 유사한 스칼라 필드의 정지 이미지 형태를 확인했으며 산 형태가 약화되는 것을 확인했으나 **Godot 4.6 GL Compatibility 실제 실행/컴파일 및 12프레임 애니메이션은 아직 검증되지 않음**. 로컬에서 F로 세 모드 비교가 필요하다.

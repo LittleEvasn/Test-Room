@@ -1,5 +1,5 @@
 extends Node2D
-## v4: A connected flow-mask, B original generated flipbook, C hybrid.
+## v5: connected turbulent fire sheets instead of conical mountains.
 ## No copied artwork; light smoke/sparks are accents, NEVER the fire body.
 const GROUND_SHADER = preload("res://shaders/ember_footprint.gdshader")
 const MASK_SHADER = preload("res://shaders/ember_fire_mask.gdshader")
@@ -124,14 +124,14 @@ func _make_ground() -> void:
     materials.append(mat)
 
 func _make_mask() -> void:
-    var mat := _quad(Vector2(-49.0, -83.0), Vector2(98.0, 88.0), MASK_SHADER)
+    var mat := _quad(Vector2(-51.0, -68.0), Vector2(102.0, 72.0), MASK_SHADER)
     mat.set_shader_parameter("noise_tex", _noise_texture)
     mat.set_shader_parameter("brightness", 1.0 if style == 0 else 0.94)
 
 func _make_flipbook() -> void:
-    var mat := _quad(Vector2(-49.0, -83.0), Vector2(98.0, 88.0), FLIP_SHADER)
+    var mat := _quad(Vector2(-49.0, -66.0), Vector2(98.0, 70.0), FLIP_SHADER)
     mat.set_shader_parameter("fire_atlas", ATLAS_BUILDER.get_atlas())
-    mat.set_shader_parameter("strength", 1.0 if style == 1 else 0.48)
+    mat.set_shader_parameter("strength", 1.0 if style == 1 else 0.32)
 
 func _accent(texture: Texture2D, amount: int, duration: float,
         speed: float, spread: float, color_ramp: GradientTexture1D,
