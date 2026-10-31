@@ -285,7 +285,7 @@ func _fire_wave(context: Dictionary, echo_copy: bool) -> int:
 	return successes
 
 func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, branch: int, branches: int) -> bool:
-	if bool(context.get("fall", false)) and int(context["spell"]) not in FALL_PHYSICAL_SPELLS and not bool(context.get("_fall_arrived", false)):
+	if bool(context.get("fall", false)) and int(context["spell"]) not in FALL_PHYSICAL_SPELLS and int(context["spell"]) != 10 and not bool(context.get("_fall_arrived", false)):
 		if get_tree().get_nodes_in_group("vfx_fall_preview").size() >= MAX_FALL_PREVIEWS:
 			blocked_spawns += 1
 			return false
@@ -414,7 +414,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 10:
 		# Magicraft 1004 basic: instant straight beam, no refraction until a later test.
 		var ray = LASER_SCRIPT.new()
-		ray.configure(origin, shot_aim, density, in_orbit)
+		ray.configure(origin, shot_aim, density, in_orbit, in_fall)
 		add_child(ray)
 		spawned_spell = ray
 		ray.add_to_group("vfx_laser")
@@ -458,6 +458,10 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	if is_echo:
 		spawned_spell.modulate.a = ECHO_PREVIEW_ALPHA
 	if in_fall and spell_id in FALL_PHYSICAL_SPELLS:
+		if get_tree().get_nodes_in_group("vfx_fall_preview").size() >= MAX_FALL_PREVIEWS:
+			spawned_spell.queue_free()
+			blocked_spawns += 1
+			return false
 		var descent = FALL_SCRIPT.new()
 		descent.configure(shot_aim, spawned_spell, Vector2(context["origin"]))
 		descent.arrived.connect(_on_actual_fall_arrived.bind(context.duplicate(true), spawned_spell, shot_aim, is_echo, branch, branches))
@@ -480,7 +484,12 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		label += " [낙하 완료]"
 	var cast_id: int = harness.track(spawned_spell, label)
 	if spell_id == 10:
-		if in_orbit:
+		if in_fall:
+			# Magicraft 1004 fall is an instant landing line: only the ground
+			# endpoint can count as a mock landing, not every airborne segment.
+			var impact_position: Vector2 = spawned_spell.get_fall_endpoint()
+			harness.check_beam(cast_id, impact_position, impact_position)
+		elif in_orbit:
 			var ring_points := PackedVector2Array()
 			for i in range(37):
 				ring_points.append(origin + Vector2.from_angle(TAU * float(i) / 36.0) * float(LASER_SCRIPT.ORBIT_RADIUS))
@@ -499,51 +508,44 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 	var level: int = int(context["rank"])
 	var density: float = float(context["density"])
 	visual.global_position = landing
-	match kind:
-		0:
-			visual.set("destination", landing)
-		1:
-			visual.set("destination", landing)
-		2:
-			visual.call("configure", landing, landing + Vector2.RIGHT * 25.0, density)
-		3:
-			visual.set("spawn_pos", landing)
-			visual.set("drift", Vector2.ZERO)
-		4:
-			if bool(context["orbit"]):
-				# Tangential throw is retained only for the orbit exception.
-				var radial := (landing - Vector2(context["origin"])).normalized()
-				if radial.length_squared() < 0.001:
-					radial = Vector2.RIGHT
-				visual.call("configure", landing, landing + radial.orthogonal() * 250.0, density, level)
-			else:
-				# A falling mine should open at impact, not restart a ground roll.
-				visual.set("ground_pos", landing)
-				visual.set("state", "DEPLOYING")
-				visual.set("state_time", 0.0)
-				visual.set("seed_height", 0.0)
-		7:
-			visual.call("configure", landing, landing, density, level)
-		9:
-			visual.set("from_point", landing)
-			visual.set("to_point", landing)
-			visual.set("age", 0.0)
-			visual.set("distance", 0.0)
-			visual.set("last_world", landing)
-	if bool(context["orbit"]) and kind in [0, 1, 2, 3, 7]:
-		var driver = ORBIT_SCRIPT.new()
-		var direction: Vector2 = landing - Vector2(context["origin"])
-		driver.configure(visual, landing, level, _orbit_velocity(kind), direction.angle(), kind)
-		add_child(driver)
-	fired_count += 1
-	var label: String = SPELL_CHOICES[kind] + " [낙하]"
+	# The original actor has already been visibly descending with live VFX.
+	# Finish its first ground contact; do not reconfigure/recast a different
+	# projectile or restart straight-line flight at the ground.
+	var label: String = SPELL_CHOICES[kind] + " [낙하 완료]"
 	if is_echo:
 		label += " [메아리]"
 	if branches > 1:
 		label += " 갈래 %d/%d" % [branch, branches]
-	if bool(context["orbit"]):
-		label += " [공전]" if kind != 4 else " [접선 덫]"
-	harness.track(visual, label)
+	var cast_id: int = harness.track(visual, label)
+	harness.check_beam(cast_id, landing, landing)
+	fired_count += 1
+	match kind:
+		0:
+			visual.emit_signal("impacted", landing)
+			visual.queue_free()
+		1:
+			visual.emit_signal("impacted", landing, float(visual.get("blast_radius")))
+			visual.queue_free()
+		2:
+			visual.emit_signal("struck", landing)
+			visual.queue_free()
+		3:
+			# Magicraft 1007: falling black hole does not keep ticking or pulling.
+			# Its existing shader collapses after making contact.
+			visual.call("fall_impact")
+		4:
+			# Falling thorn opens in place; no restarted ground roll.
+			visual.set("ground_pos", landing)
+			visual.set("state", "DEPLOYING")
+			visual.set("state_time", 0.0)
+			visual.set("seed_height", 0.0)
+		7:
+			visual.emit_signal("landed", landing, float(POISON_BALL_SCRIPT.RADII[level]), float(POISON_BALL_SCRIPT.LIFETIMES[level]))
+			visual.emit_signal("finished")
+			visual.queue_free()
+		9:
+			# Reuse the existing fireball impact particles and lingering flames.
+			visual.call("_impact")
 
 func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
 	var landed_context := context.duplicate(true)
