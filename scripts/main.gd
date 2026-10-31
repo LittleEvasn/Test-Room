@@ -1,5 +1,5 @@
 extends Node2D
-## Clickable VFX spell catalog, dynamic test-mode selector, and instant 1004 laser.
+## Stage-1 fan and echo experiments on the existing independent VFX catalogue.
 
 const BOLT_SCRIPT = preload("res://scripts/star_bolt.gd")
 const IMPACT_SCRIPT = preload("res://scripts/impact_burst.gd")
@@ -23,8 +23,14 @@ const HARNESS_SCRIPT = preload("res://scripts/vfx_test_harness.gd")
 const SPELL_CHOICES := ["별빛탄", "꽃폭탄", "달빛 부메랑", "블랙홀", "가시꽃 덫", "얼음검", "벼락", "독 탱탱볼", "번개 아크", "화염구", "광선"]
 # Only genuinely implemented test motions are selectable.
 const SPELL_TEST_MODES := {9: ["직선 비행", "공전", "급선회"]}
-# Stage 0 only: selectable slots; no auxiliary effect is applied to VFX yet.
+# Stage 1: fan and echo active, remaining auxiliaries are UI-only.
 const SUPPORT_CHOICES := ["없음", "갈래", "추적", "도탄", "메아리", "낙하", "공전", "분열", "복제 궤적"]
+const FAN_INDEX := 1
+const ECHO_INDEX := 4
+const FAN_ANGLE := 0.24 # radians, same base fan spacing as the main game
+const ECHO_DELAY := 0.18
+const ECHO_PREVIEW_ALPHA := 0.35 # visual-only substitute for damage scaling
+const MAX_PENDING_ECHO := 12
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -63,10 +69,15 @@ var fireball_impacts := 0
 var fireball_finished := 0
 var fireball_motion := 0 # 0 straight, 1 orbit, 2 curving
 var laser_finished := 0
+var pending_echoes: Array[Dictionary] = []
+var original_casts := 0
+var echo_casts := 0
+var blocked_spawns := 0
 
 var title_label: Label
 var info_label: Label
 var status_label: Label
+var effect_label: Label
 var spell_picker: OptionButton
 var mode_picker: OptionButton
 var support_picker_1: OptionButton
@@ -83,6 +94,7 @@ func _ready() -> void:
 	queue_redraw()
 
 func _process(delta: float) -> void:
+	_update_pending_echoes(delta)
 	if autofire:
 		fire_clock -= delta
 		if fire_clock <= 0.0:
@@ -146,182 +158,276 @@ func _process(delta: float) -> void:
 		status_label.text = "선택 %s%s  |  발사 %d  명중 %d  |  파티클 %.1fx  |  자동 %s" % [
 			spell_name, rank_str, fired_count, impact_count, particle_multiplier, "ON" if autofire else "OFF"
 		]
+	if effect_label != null:
+		effect_label.text = "갈래 %s / 메아리 %s | 원본 %d  재시전 %d  대기 %d  발사 제한 %d" % [
+			"3발" if _has_support(FAN_INDEX) else "OFF",
+			"0.18초" if _has_support(ECHO_INDEX) else "OFF",
+			original_casts, echo_casts, pending_echoes.size(), blocked_spawns
+		]
 	queue_redraw()
 
 func _auto_interval() -> float:
 	match selected_spell:
-		3: return 5.2
+		3: return 6.3 if _has_support(FAN_INDEX) or _has_support(ECHO_INDEX) else 5.2
 		4: return 2.6
 		5: return 1.15
 		6:
 			# Avoid overlapping auto pulses at +2/+3 while reviewing one strike.
 			return 1.55 if thunder_rank <= 1 else (2.20 if thunder_rank == 2 else 2.85)
-		7: return 3.25
+		7: return 3.85 if _has_support(FAN_INDEX) or _has_support(ECHO_INDEX) else 3.25
 		8: return 1.15
-		9: return 5.20 if fireball_motion == 1 else 2.50
+		9: return 5.20 if fireball_motion == 1 else (3.45 if _has_support(FAN_INDEX) or _has_support(ECHO_INDEX) else 2.50)
 		10: return 0.94
 	return fire_interval
 
+func _has_support(index: int) -> bool:
+	return support_1 == index or support_2 == index
+
+func _spell_rank(spell_id: int) -> int:
+	match spell_id:
+		1: return bloom_rank
+		3: return black_hole_rank
+		4: return thorn_rank
+		5: return ice_sword_rank
+		6: return thunder_rank
+		7: return poison_rank
+		8: return lightning_arc_rank
+		9: return fireball_rank
+	return 0
+
+func _cast_snapshot(replace_hole: bool) -> Dictionary:
+	# Freeze the source spell, direction, rank and test settings for a delayed echo.
+	return {
+		"spell": selected_spell, "origin": START_POINT, "aim": target_point,
+		"rank": _spell_rank(selected_spell), "density": particle_multiplier,
+		"motion": fireball_motion, "fan": _has_support(FAN_INDEX),
+		"echo": _has_support(ECHO_INDEX), "replace_hole": replace_hole
+	}
+
 func shoot(replace_hole: bool = false) -> void:
+	var context := _cast_snapshot(replace_hole)
+	if _fire_wave(context, false) <= 0:
+		return
+	original_casts += 1
+	if bool(context["echo"]):
+		if pending_echoes.size() < MAX_PENDING_ECHO:
+			# Scheduled once per original cast, NEVER per bullet or echo copy.
+			pending_echoes.append({"delay": ECHO_DELAY, "cast": context.duplicate(true)})
+		else:
+			blocked_spawns += 1
+
+func _update_pending_echoes(delta: float) -> void:
+	for i in range(pending_echoes.size() - 1, -1, -1):
+		var task: Dictionary = pending_echoes[i]
+		task["delay"] = float(task["delay"]) - delta
+		if float(task["delay"]) <= 0.0:
+			pending_echoes.remove_at(i)
+			if _fire_wave(task["cast"], true) > 0:
+				echo_casts += 1
+		else:
+			pending_echoes[i] = task
+
+func _fire_wave(context: Dictionary, echo_copy: bool) -> int:
+	var count := 3 if bool(context["fan"]) else 1
+	var origin: Vector2 = context["origin"]
+	var delta_aim: Vector2 = Vector2(context["aim"]) - origin
+	if delta_aim.length_squared() < 0.001:
+		delta_aim = Vector2.RIGHT * 300.0
+	var successes := 0
+	for i in range(count):
+		var angle := (float(i) - float(count - 1) * 0.5) * FAN_ANGLE
+		var shot_aim: Vector2 = origin + delta_aim.rotated(angle)
+		if _spawn_single_cast(context, shot_aim, echo_copy, i + 1, count):
+			successes += 1
+	return successes
+
+func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, branch: int, branches: int) -> bool:
+	var spell_id: int = int(context["spell"])
+	var origin: Vector2 = context["origin"]
+	var density: float = float(context["density"])
+	var rank: int = int(context["rank"])
+	var motion: int = int(context["motion"])
+	var replace_hole: bool = bool(context["replace_hole"]) and not is_echo
 	var spawned_spell: Node2D = null
 	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
-		return
-	if selected_spell == 0:
+		return false
+	if spell_id == 0:
 		var bolt = BOLT_SCRIPT.new()
-		bolt.configure(START_POINT, target_point, particle_multiplier)
+		bolt.configure(origin, shot_aim, density)
 		add_child(bolt)
 		spawned_spell = bolt
 		bolt.add_to_group("vfx_bolt")
-		bolt.impacted.connect(_on_bolt_impact)
-	elif selected_spell == 1:
+		bolt.impacted.connect(_on_bolt_impact.bind(is_echo))
+	elif spell_id == 1:
 		var bomb = BLOOM_SCRIPT.new()
-		bomb.configure(START_POINT, target_point, particle_multiplier, BLOOM_RADII[bloom_rank])
+		bomb.configure(origin, shot_aim, density, BLOOM_RADII[rank])
 		add_child(bomb)
 		spawned_spell = bomb
 		bomb.add_to_group("vfx_bloom")
-		bomb.impacted.connect(_on_bloom_impact.bind(bloom_rank))
-	elif selected_spell == 2:
+		bomb.impacted.connect(_on_bloom_impact.bind(rank, density, is_echo))
+	elif spell_id == 2:
 		var moon = MOON_SCRIPT.new()
-		moon.configure(START_POINT, target_point, particle_multiplier)
+		moon.configure(origin, shot_aim, density)
 		add_child(moon)
 		spawned_spell = moon
 		moon.add_to_group("vfx_moon")
-		moon.struck.connect(_on_moon_struck)
-		moon.returned.connect(_on_moon_returned)
-	elif selected_spell == 3:
+		moon.struck.connect(_on_moon_struck.bind(is_echo))
+		moon.returned.connect(_on_moon_returned.bind(is_echo))
+	elif spell_id == 3:
 		# 이펙트 평가 중에는 블랙홀 한 개에만 집중한다.
 		# 자동 발사는 기존 개체가 소멸할 때까지 기다리고, 수동 발사는 위치를 바꿔 다시 소환한다.
 		var active_holes := get_tree().get_nodes_in_group("vfx_hole")
-		if not active_holes.is_empty():
-			if not replace_hole:
-				return
-			for old_hole in active_holes:
-				old_hole.remove_from_group("vfx_hole")
-				old_hole.queue_free()
+		if not bool(context["fan"]) and not bool(context["echo"]):
+			if not active_holes.is_empty():
+				if not replace_hole:
+					return false
+				for old_hole in active_holes:
+					old_hole.remove_from_group("vfx_hole")
+					old_hole.queue_free()
+		elif active_holes.size() >= 6:
+			blocked_spawns += 1
+			return false
 		var hole = BLACK_HOLE_SCRIPT.new()
-		hole.configure(target_point, START_POINT, particle_multiplier, black_hole_rank)
+		hole.configure(shot_aim, origin, density, rank)
 		add_child(hole)
 		spawned_spell = hole
 		hole.add_to_group("vfx_hole")
 		hole.pulsed.connect(_on_black_hole_pulse)
 		hole.vanished.connect(_on_black_hole_vanished)
-	elif selected_spell == 5:
+	elif spell_id == 5:
 		# Pure animation preview: no enemy, status effects, hitbox or spell combat.
 		var sword = ICE_SWORD_SCRIPT.new()
-		sword.configure(START_POINT, target_point, particle_multiplier, ice_sword_rank, ice_sword_swings)
+		sword.configure(origin, shot_aim, density, rank, ice_sword_swings)
 		add_child(sword)
 		spawned_spell = sword
 		sword.add_to_group("vfx_ice_sword")
 		sword.finished.connect(_on_ice_sword_finished)
 		ice_sword_swings += 1
-	elif selected_spell == 6:
+	elif spell_id == 6:
 		# Ground-targeted lightning VFX only. No combat collision or damage.
 		var lightning = THUNDER_SCRIPT.new()
-		lightning.configure(target_point, particle_multiplier, thunder_rank)
+		lightning.configure(shot_aim, density, rank)
 		add_child(lightning)
 		spawned_spell = lightning
 		lightning.add_to_group("vfx_thunder")
 		lightning.struck.connect(_on_thunder_struck)
 		lightning.finished.connect(_on_thunder_finished)
-	elif selected_spell == 7:
+	elif spell_id == 7:
 		# VFX-only: a simple bouncing poison circle leaves one ground puddle per landing.
-		if get_tree().get_nodes_in_group("vfx_poison_ball").size() >= 5:
-			return
+		if get_tree().get_nodes_in_group("vfx_poison_ball").size() >= (6 if bool(context["fan"]) or bool(context["echo"]) else 5):
+			return false
 		var orb = POISON_BALL_SCRIPT.new()
-		orb.configure(START_POINT, target_point, particle_multiplier, poison_rank)
+		orb.configure(origin, shot_aim, density, rank)
 		add_child(orb)
 		spawned_spell = orb
 		orb.add_to_group("vfx_poison_ball")
-		orb.landed.connect(_on_poison_land)
+		orb.landed.connect(_on_poison_land.bind(density, is_echo))
 		orb.finished.connect(_on_poison_finished)
-	elif selected_spell == 8:
+	elif spell_id == 8:
 		# FencerDevLog-inspired single unbranched electric arc, visually isolated from 7: strike.
 		var arc = LIGHTNING_ARC_SCRIPT.new()
-		arc.configure(START_POINT, target_point, particle_multiplier, lightning_arc_rank)
+		arc.configure(origin, shot_aim, density, rank)
 		add_child(arc)
 		spawned_spell = arc
 		arc.add_to_group("vfx_lightning_arc")
 		arc.finished.connect(_on_lightning_arc_finished)
-	elif selected_spell == 10:
+	elif spell_id == 10:
 		# Magicraft 1004 basic: instant straight beam, no refraction until a later test.
 		var ray = LASER_SCRIPT.new()
-		ray.configure(START_POINT, target_point, particle_multiplier)
+		ray.configure(origin, shot_aim, density)
 		add_child(ray)
 		spawned_spell = ray
 		ray.add_to_group("vfx_laser")
 		ray.finished.connect(_on_laser_finished)
-	elif selected_spell == 9:
+	elif spell_id == 9:
 		if get_tree().get_nodes_in_group("vfx_fireball").size() >= 6:
-			return
+			return false
 		var fireball = FIREBALL_SCRIPT.new()
-		fireball.configure(START_POINT, target_point, particle_multiplier, fireball_rank, fireball_motion)
+		fireball.configure(origin, shot_aim, density, rank, motion)
 		add_child(fireball)
 		spawned_spell = fireball
 		fireball.add_to_group("vfx_fireball")
-		fireball.impacted.connect(_on_fireball_impact.bind(fireball_rank))
+		fireball.impacted.connect(_on_fireball_impact.bind(rank, density, is_echo))
 		fireball.finished.connect(_on_fireball_finished)
 	else:
 		# Unlike the black-hole preview, multiple deployed thorn traps are allowed.
 		if get_tree().get_nodes_in_group("vfx_thorn").size() >= 12:
-			return
+			return false
 		var trap = THORN_SCRIPT.new()
-		trap.configure(START_POINT, target_point, particle_multiplier, thorn_rank)
+		trap.configure(origin, shot_aim, density, rank)
 		add_child(trap)
 		spawned_spell = trap
 		trap.add_to_group("vfx_thorn")
 		trap.deployed.connect(_on_thorn_deployed)
 		trap.triggered.connect(_on_thorn_triggered)
 		trap.vanished.connect(_on_thorn_vanished)
+	if spawned_spell == null:
+		return false
+	if is_echo:
+		spawned_spell.modulate.a = ECHO_PREVIEW_ALPHA
 	fired_count += 1
-	# A single shared instrumentation path for every base VFX, independent of modifiers.
-	if spawned_spell != null:
-		var cast_id: int = harness.track(spawned_spell, _spell_name())
-		if selected_spell == 10:
-			# The instantaneous beam has no moving projectile body.
-			var beam_direction: Vector2 = (target_point - START_POINT).normalized()
-			if beam_direction.length_squared() <= 0.001:
-				beam_direction = Vector2.RIGHT
-			harness.check_beam(cast_id, START_POINT, START_POINT + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
+	var label: String = SPELL_CHOICES[spell_id]
+	if is_echo:
+		label += " [메아리]"
+	if branches > 1:
+		label += " 갈래 %d/%d" % [branch, branches]
+	var cast_id: int = harness.track(spawned_spell, label)
+	if spell_id == 10:
+		var beam_direction: Vector2 = (shot_aim - origin).normalized()
+		if beam_direction.length_squared() <= 0.001:
+			beam_direction = Vector2.RIGHT
+		harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
+	return true
 
 func _on_laser_finished() -> void:
 	laser_finished += 1
 
-func _on_fireball_impact(point: Vector2, cast_rank: int) -> void:
+func _on_fireball_impact(point: Vector2, cast_rank: int, cast_density: float, is_echo: bool) -> void:
 	fireball_impacts += 1
 	var burst = FIREBALL_IMPACT_SCRIPT.new()
 	burst.global_position = point
-	burst.configure(float(FIREBALL_SCRIPT.RADII[cast_rank]), particle_multiplier)
+	burst.configure(float(FIREBALL_SCRIPT.RADII[cast_rank]), cast_density)
 	add_child(burst)
+	if is_echo:
+		burst.modulate.a = ECHO_PREVIEW_ALPHA
 
 func _on_fireball_finished() -> void:
 	fireball_finished += 1
 
-func _on_bolt_impact(point: Vector2) -> void:
+func _on_bolt_impact(point: Vector2, is_echo: bool) -> void:
 	impact_count += 1
 	var burst = IMPACT_SCRIPT.new()
 	burst.global_position = point
 	add_child(burst)
+	if is_echo:
+		burst.modulate.a = ECHO_PREVIEW_ALPHA
 
-func _on_bloom_impact(point: Vector2, radius: float, cast_rank: int) -> void:
+func _on_bloom_impact(point: Vector2, radius: float, cast_rank: int, cast_density: float, is_echo: bool) -> void:
 	impact_count += 1
 	var burst = BLOOM_BURST_SCRIPT.new()
 	burst.global_position = point
-	burst.configure(radius, particle_multiplier, cast_rank)
+	burst.configure(radius, cast_density, cast_rank)
 	add_child(burst)
+	if is_echo:
+		burst.modulate.a = ECHO_PREVIEW_ALPHA
 
-func _on_moon_struck(point: Vector2) -> void:
+func _on_moon_struck(point: Vector2, is_echo: bool) -> void:
 	impact_count += 1
 	var flash = MOON_HIT_SCRIPT.new()
 	flash.global_position = point
 	flash.configure(false)
 	add_child(flash)
+	if is_echo:
+		flash.modulate.a = ECHO_PREVIEW_ALPHA
 
-func _on_moon_returned(point: Vector2) -> void:
+func _on_moon_returned(point: Vector2, is_echo: bool) -> void:
 	var flash = MOON_HIT_SCRIPT.new()
 	flash.global_position = point
 	flash.configure(true)
 	add_child(flash)
+	if is_echo:
+		flash.modulate.a = ECHO_PREVIEW_ALPHA
 
 func _on_black_hole_pulse(_point: Vector2, _radius: float) -> void:
 	# 실험실에는 적이 없으므로 실제 피해 대신 0.25초 틱 신호만 기록한다.
@@ -342,7 +448,7 @@ func _on_thunder_finished(_point: Vector2) -> void:
 func _on_lightning_arc_finished(_point: Vector2) -> void:
 	lightning_arc_finished += 1
 
-func _on_poison_land(point: Vector2, radius: float, lifetime: float) -> void:
+func _on_poison_land(point: Vector2, radius: float, lifetime: float, cast_density: float, is_echo: bool) -> void:
 	poison_landings += 1
 	# Bound the preview under repeated casts and high-rank tests.
 	var pools := get_tree().get_nodes_in_group("vfx_poison_puddle")
@@ -350,8 +456,10 @@ func _on_poison_land(point: Vector2, radius: float, lifetime: float) -> void:
 		pools[0].queue_free()
 	var puddle = POISON_PUDDLE_SCRIPT.new()
 	puddle.position = point
-	puddle.configure(radius, lifetime, particle_multiplier)
+	puddle.configure(radius, lifetime, cast_density)
 	add_child(puddle)
+	if is_echo:
+		puddle.modulate.a = ECHO_PREVIEW_ALPHA
 	puddle.add_to_group("vfx_poison_puddle")
 
 func _on_poison_finished() -> void:
@@ -480,6 +588,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
 				particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
 			KEY_C:
+				pending_echoes.clear()
+				original_casts = 0
+				echo_casts = 0
+				blocked_spawns = 0
+				fire_clock = _auto_interval()
 				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword", "vfx_thunder", "vfx_poison_ball", "vfx_poison_puddle", "vfx_lightning_arc", "vfx_fireball", "vfx_laser"]:
 					for projectile in get_tree().get_nodes_in_group(group_name):
 						projectile.queue_free()
@@ -558,11 +671,17 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "마법 선택: 목록 / PgUp·PgDn 이전·다음 (1~0 유지)  |  보조 1·2는 현재 선택만 가능\n클릭·SPACE 발사   R 자동   Q/E 강화   F 이동 방식   T 덫 발동   ↑/↓ 입자   C 기록 초기화"
+	info_label.text = "마법 선택: 목록 / PgUp·PgDn 이전·다음 (1~0 유지)  |  갈래·메아리 실제 VFX 적용\n클릭·SPACE 발사   R 자동   Q/E 강화   F 이동 방식   T 덫 발동   ↑/↓ 입자   C 기록 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
 	layer.add_child(info_label)
+
+	effect_label = Label.new()
+	effect_label.position = Vector2(36, 99)
+	effect_label.add_theme_font_size_override("font_size", 14)
+	effect_label.add_theme_color_override("font_color", Color("bfe7da"))
+	layer.add_child(effect_label)
 
 	status_label = Label.new()
 	status_label.position = Vector2(36, 151)
@@ -629,7 +748,7 @@ func _create_support_controls(layer: CanvasLayer) -> void:
 		support_picker_1.add_item(SUPPORT_CHOICES[i], i)
 	support_picker_1.select(0)
 	support_picker_1.item_selected.connect(_on_support_selected.bind(1))
-	support_picker_1.tooltip_text = "0단계: 선택 저장만 수행. 실제 효과는 추후 구현."
+	support_picker_1.tooltip_text = "갈래·메아리만 실제 작동. 나머지 선택은 준비 중."
 	layer.add_child(support_picker_1)
 
 	var label_2 := Label.new()
@@ -645,11 +764,11 @@ func _create_support_controls(layer: CanvasLayer) -> void:
 		support_picker_2.add_item(SUPPORT_CHOICES[i], i)
 	support_picker_2.select(0)
 	support_picker_2.item_selected.connect(_on_support_selected.bind(2))
-	support_picker_2.tooltip_text = "동일 보조의 중복 선택은 허용되지 않습니다."
+	support_picker_2.tooltip_text = "갈래+메아리 동시 작동. 동일 보조 중복은 허용되지 않습니다."
 	layer.add_child(support_picker_2)
 
 func _on_support_selected(index: int, slot: int) -> void:
-	# The same auxiliary spell must not appear in both slots. Neither runs yet.
+	# The same auxiliary spell must not appear in both slots.
 	if slot == 1:
 		support_1 = index
 		if index != 0 and support_2 == index:
@@ -660,6 +779,7 @@ func _on_support_selected(index: int, slot: int) -> void:
 		if index != 0 and support_1 == index:
 			support_1 = 0
 			support_picker_1.select(0)
+	fire_clock = _auto_interval()
 
 func _select_spell(index: int) -> void:
 	selected_spell = posmod(index, SPELL_CHOICES.size())
