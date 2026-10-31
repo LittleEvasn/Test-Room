@@ -77,6 +77,12 @@ func check_beam(id: int, origin: Vector2, endpoint: Vector2) -> void:
 	# Instant beams never move their Node2D, so explicitly sample their full segment.
 	_check_contacts(id, origin, endpoint)
 
+func check_path(id: int, points: PackedVector2Array) -> void:
+	# A round laser must be tested against EACH arc segment. Never approximate
+	# the circle with a straight chord through the player.
+	for i in range(1, points.size()):
+		_check_contacts(id, points[i - 1], points[i])
+
 func reset_statistics() -> void:
 	# A subsequent C/queue_free must not count as a normal spell expiration.
 	active.clear()
