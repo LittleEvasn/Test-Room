@@ -12,6 +12,9 @@ const SWORD_TEXTURE: Texture2D = preload("res://assets/얼음칼.png")
 const SWORD_PIVOT := Vector2(256.0, 20.0)
 const BLADE_START_FROM_PIVOT := 138.0
 const TIP_FROM_PIVOT := 470.0
+# Blade starts just below the guard: radius 138/470 = 0.294 of full sword.
+# Only the cutting blade (not the handle/guard) should leave a sweeping trail.
+const BLADE_ROOT_RATIO := BLADE_START_FROM_PIVOT / TIP_FROM_PIVOT
 const BEFORE_TIME := 0.20
 const AFTER_TIME := 0.25
 # A continuous time-sampled ring ribbon removes gaps from per-frame quads.
@@ -178,7 +181,35 @@ func _draw_sword(angle: float, opacity: float, scale_factor: float = 1.0) -> voi
     var texture_rotation: float = angle - PI * 0.5
     draw_set_transform(Vector2.ZERO, texture_rotation, Vector2.ONE * _scale() * scale_factor)
     draw_texture(SWORD_TEXTURE, -SWORD_PIVOT, Color(1.0, 1.0, 1.0, clampf(opacity, 0.0, 1.0)))
+    _draw_crystal_facets(opacity)
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_crystal_facets(opacity: float) -> void:
+    # These are translucent lighting accents OVER the uploaded sprite,
+    # not changes to the user's PNG. Sprite coordinates are relative
+    # to the hilt-end pivot (256,20): blade is y~158..490.
+    var light_alpha: float = clampf(opacity, 0.0, 1.0)
+    # Broad, angled facets split the flat cyan fill into icy planes.
+    var left_facet: PackedVector2Array = PackedVector2Array([
+        Vector2(-19.0, 152.0), Vector2(-3.0, 174.0),
+        Vector2(-5.0, 327.0), Vector2(-13.0, 372.0),
+        Vector2(-23.0, 284.0)
+    ])
+    draw_colored_polygon(left_facet, Color(0.86, 0.99, 1.0, 0.19 * light_alpha))
+    var right_facet: PackedVector2Array = PackedVector2Array([
+        Vector2(9.0, 167.0), Vector2(21.0, 153.0),
+        Vector2(22.0, 317.0), Vector2(8.0, 404.0),
+        Vector2(2.0, 300.0)
+    ])
+    draw_colored_polygon(right_facet, Color(0.11, 0.41, 0.76, 0.16 * light_alpha))
+    # Thin internal crystal ridges follow the actual blade silhouette.
+    draw_line(Vector2(-13.0, 168.0), Vector2(-2.0, 300.0),
+        Color(0.95, 1.0, 1.0, 0.48 * light_alpha), 3.2, true)
+    draw_line(Vector2(-2.0, 300.0), Vector2(0.0, 442.0),
+        Color(0.82, 0.97, 1.0, 0.43 * light_alpha), 3.0, true)
+    draw_line(Vector2(15.0, 195.0), Vector2(-2.0, 300.0),
+        Color(0.70, 0.92, 1.0, 0.26 * light_alpha), 2.8, true)
+
 
 func _draw_trail() -> void:
     var end_time: float = minf(age, slash_time * 0.80)
@@ -192,23 +223,37 @@ func _draw_trail() -> void:
     var angular_distance: float = absf(_angle_at(end_time) - _angle_at(start_time))
     var samples: int = clampi(int(ceilf(angular_distance / deg_to_rad(1.5))), 12, MAX_TRAIL_SAMPLES)
 
-    # Three layers form one coherent frost slash: faint bloom, ice fill,
-    # and a thin uninterrupted antialiased cutting edge near the true tip.
-    _draw_ribbon_layer(start_time, end_time, samples, 0.66, 1.02,
-        Color(0.22, 0.65, 1.0, 0.075), Color(0.52, 0.85, 1.0, 0.02))
-    _draw_ribbon_layer(start_time, end_time, samples, 0.79, 0.985,
-        Color(0.37, 0.84, 1.0, 0.32), Color(0.93, 1.0, 1.0, 0.08))
+    # A blade-wide sweep: from just below the guard (root ratio ~0.294)
+    # all the way to the POINT (radius 1.0). The old 0.66 and 0.79
+    # inner radii missed roughly the INNER HALF of the cutting edge.
+    # Frost stays transparent enough to see the actual weapon through it.
+    _draw_ribbon_layer(start_time, end_time, samples, BLADE_ROOT_RATIO, 1.035,
+        Color(0.22, 0.53, 0.82, 0.12), Color(0.45, 0.82, 0.98, 0.035))
+    _draw_ribbon_layer(start_time, end_time, samples, BLADE_ROOT_RATIO + 0.022, 0.99,
+        Color(0.49, 0.89, 1.0, 0.22), Color(0.80, 0.97, 1.0, 0.23))
+    # A wispy crystalline center so the arc feels icy rather than a solid neon fan.
+    _draw_ribbon_layer(start_time, end_time, samples, 0.46, 0.82,
+        Color(0.86, 1.0, 1.0, 0.095), Color(0.91, 0.99, 1.0, 0.12))
 
-    var tip_points: PackedVector2Array = PackedVector2Array()
-    var tip_colors: PackedColorArray = PackedColorArray()
+    # Continuous feathered contours at BLADE ROOT and tip:
+    # no isolated dot at the outer tip, no visible seam.
+    _draw_edge_contour(start_time, end_time, samples, BLADE_ROOT_RATIO + 0.024,
+        Color(0.73, 0.96, 1.0, 0.21), 1.1)
+    _draw_edge_contour(start_time, end_time, samples, 0.995,
+        Color(0.92, 0.99, 1.0, 0.53), 1.6)
+
+func _draw_edge_contour(start_time: float, end_time: float, samples: int,
+        radius_ratio: float, tint: Color, line_width: float) -> void:
+    var points: PackedVector2Array = PackedVector2Array()
+    var colors: PackedColorArray = PackedColorArray()
     for i in range(samples + 1):
         var u: float = float(i) / float(samples)
-        var sample_time: float = lerpf(start_time, end_time, u)
-        var alpha: float = _trail_fade(sample_time)
-        var angle: float = _angle_at(sample_time)
-        tip_points.append(Vector2.RIGHT.rotated(angle) * TIP_FROM_PIVOT * _scale() * 0.99)
-        tip_colors.append(Color(0.90, 0.98, 1.0, 0.63 * alpha))
-    draw_polyline_colors(tip_points, tip_colors, 1.7, true)
+        var moment: float = lerpf(start_time, end_time, u)
+        var fade: float = _trail_fade(moment)
+        points.append(Vector2.RIGHT.rotated(_angle_at(moment)) *
+            TIP_FROM_PIVOT * _scale() * radius_ratio)
+        colors.append(Color(tint.r, tint.g, tint.b, tint.a * fade))
+    draw_polyline_colors(points, colors, line_width, true)
 
 
 func _trail_fade(sample_time: float) -> float:
