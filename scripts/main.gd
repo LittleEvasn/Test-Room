@@ -395,9 +395,9 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var orb = POISON_BALL_SCRIPT.new()
-		orb.configure(origin, cast_aim, density, rank)
 		if in_orbit:
 			orb.set_meta("aux_orbit", true)
+		orb.configure(origin, cast_aim, density, rank)
 		add_child(orb)
 		spawned_spell = orb
 		orb.add_to_group("vfx_poison_ball")
@@ -510,7 +510,13 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 			visual.spawn_pos = landing
 			visual.drift = Vector2.ZERO
 		4:
-			visual.configure(landing, landing, density, level)
+			var throw_target := landing
+			if bool(context["orbit"]):
+				var radial := (landing - Vector2(context["origin"])).normalized()
+				if radial.length_squared() < 0.001:
+					radial = Vector2.RIGHT
+				throw_target = landing + radial.orthogonal() * 250.0
+			visual.configure(landing, throw_target, density, level)
 		7:
 			visual.configure(landing, landing, density, level)
 		9:
