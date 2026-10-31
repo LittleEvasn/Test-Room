@@ -40,6 +40,7 @@ func _process(delta: float) -> void:
 		var current: Vector2 = projectile.global_position
 		if not bool(entry["moved"]) and current.distance_to(Vector2(entry["start"])) >= 14.0:
 			entry["moved"] = true
+			active[id] = entry # Persist the once-per-cast flag before contact sampling.
 			moved_count += 1
 			_add_log("#%d %s · 이동 시작" % [int(entry["number"]), str(entry["name"])])
 		# Sample the swept segment instead of only the current frame position.
