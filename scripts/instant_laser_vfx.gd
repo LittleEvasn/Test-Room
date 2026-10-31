@@ -11,9 +11,13 @@ var start_point := Vector2.ZERO
 var direction := Vector2.RIGHT
 var glow_scale := 1.0
 var elapsed := 0.0
+var orbit_mode := false
+const ORBIT_RADIUS := 175.0
+const ORBIT_SEGMENTS := 36
 
-func configure(origin: Vector2, aim_at: Vector2, particle_multiplier: float = 1.0) -> void:
+func configure(origin: Vector2, aim_at: Vector2, particle_multiplier: float = 1.0, is_orbit: bool = false) -> void:
     start_point = origin
+    orbit_mode = is_orbit
     direction = (aim_at - origin).normalized()
     if direction.length_squared() < 0.001:
         direction = Vector2.RIGHT
@@ -21,7 +25,7 @@ func configure(origin: Vector2, aim_at: Vector2, particle_multiplier: float = 1.
 
 func _ready() -> void:
     position = start_point
-    rotation = direction.angle()
+    rotation = 0.0 if orbit_mode else direction.angle()
     z_index = 5
     queue_redraw()
 
@@ -38,6 +42,19 @@ func _draw() -> void:
     if alpha <= 0.001:
         return
     var glow := clampf(glow_scale, 0.0, 2.5)
+    if orbit_mode:
+        # Magicraft 1004 LaserJob: 36 line segments x 10deg,
+        # an instantaneous 360-degree curved beam around the caster.
+        var points := PackedVector2Array()
+        for i in range(ORBIT_SEGMENTS + 1):
+            var a: float = TAU * float(i) / float(ORBIT_SEGMENTS)
+            points.append(Vector2.from_angle(a) * ORBIT_RADIUS)
+        draw_polyline(points, Color(0.06, 0.59, 1.0, 0.06 * alpha * glow), 37.0, true)
+        draw_polyline(points, Color(0.15, 0.77, 1.0, 0.14 * alpha * glow), 21.0, true)
+        draw_polyline(points, Color(0.34, 0.85, 1.0, 0.48 * alpha), 9.0, true)
+        draw_polyline(points, Color(0.78, 0.98, 1.0, 0.90 * alpha), 4.0, true)
+        draw_polyline(points, Color.WHITE * Color(1, 1, 1, 0.95 * alpha), 1.8, true)
+        return
     var endpoint := Vector2(MAX_RANGE, 0.0)
     # Wide transparent aura -> saturated cyan -> needle-thin white core.
     draw_line(Vector2.ZERO, endpoint, Color(0.06, 0.59, 1.0, 0.045 * alpha * glow), 37.0, true)

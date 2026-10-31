@@ -18,6 +18,7 @@ var rank := 0
 var spell_id := 0
 var age := 0.0
 var puddle_clock := 0.0
+var current_angle := 0.0
 
 static func radius_for(level: int) -> float:
 	return BASE_RADIUS + float(clampi(level, 0, 3)) * RANK_RADIUS_STEP
@@ -38,6 +39,7 @@ func configure(node: Node2D, anchor: Vector2, level: int, velocity: float, start
 	spell_id = kind
 	age = 0.0
 	puddle_clock = 0.0
+	current_angle = phase
 
 func _ready() -> void:
 	process_priority = 100
@@ -51,15 +53,21 @@ func _process(delta: float) -> void:
 		queue_free()
 		return
 	age += maxf(0.0, delta)
-	visual.global_position = orbit_point(center, rank, speed, age, phase)
+	var angular := angular_speed_for(speed, rank)
+	if spell_id == 7:
+		# The physical ball accelerates between successive impacts and loses
+		# forward momentum with each bounce. A constant-speed circle looked fake.
+		var hop: int = int(visual.get("hop_index"))
+		var hop_clock: float = float(visual.get("hop_clock"))
+		var period: float = 0.75 * pow(0.86, float(mini(hop, 8)))
+		var flight: float = clampf(hop_clock / maxf(period, 0.01), 0.0, 1.0)
+		angular *= (1.20 - 0.065 * float(mini(hop, 7))) * (0.77 + 0.32 * sin(PI * flight))
+	current_angle += angular * delta
+	visual.global_position = center + Vector2.from_angle(current_angle) * radius_for(rank)
 	# Preserve the original VFX animation but avoid its normal straight-line expiry.
 	if spell_id == 1 and float(visual.get("elapsed")) >= 1.8:
 		visual.set("elapsed", 1.5)
-	if spell_id == 7:
-		puddle_clock += delta
-		if puddle_clock >= PUDDLE_STEP:
-			puddle_clock -= PUDDLE_STEP
-			visual.emit_signal("landed", visual.global_position, float(POISON_RADII[rank]), float(POISON_LIFETIMES[rank]))
+	# Poison VFX itself now emits landings at the actual bounce moments.
 	if age >= LIFE_SECONDS:
 		# Match a bomb's VFX-only finish to its current orbital location.
 		if spell_id == 1:

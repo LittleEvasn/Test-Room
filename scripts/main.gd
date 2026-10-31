@@ -31,7 +31,8 @@ const FAN_INDEX := 1
 const ECHO_INDEX := 4
 const FALL_INDEX := 5
 const ORBIT_INDEX := 6
-const ORBIT_SPELLS := [0, 1, 2, 3, 4, 7, 9]
+const ORBIT_SPELLS := [0, 1, 2, 3, 4, 5, 6, 7, 9, 10]
+const FALL_PHYSICAL_SPELLS := [0, 1, 2, 3, 4, 7, 9]
 const MAX_FALL_PREVIEWS := 18
 const FAN_ANGLE := 0.24 # radians, same base fan spacing as the main game
 const ECHO_DELAY := 0.18
@@ -79,6 +80,7 @@ var pending_echoes: Array[Dictionary] = []
 var original_casts := 0
 var echo_casts := 0
 var blocked_spawns := 0
+var thunder_orbit_phase := 0.0
 
 var title_label: Label
 var info_label: Label
@@ -172,7 +174,11 @@ func _process(delta: float) -> void:
 				pending.append(SUPPORT_CHOICES[chosen])
 		var note := " | 미구현: " + ", ".join(pending) if not pending.is_empty() else ""
 		if _has_support(ORBIT_INDEX) and not _orbit_supported(selected_spell):
-			note += " | 이 마법은 공전 미지원"
+			note += " | 번개 아크는 공전 미지원"
+		elif _has_support(ORBIT_INDEX) and selected_spell == 4:
+			note += " | 덫: 접선 발사·고정 설치"
+		elif _has_support(ORBIT_INDEX) and selected_spell == 10:
+			note += " | 광선: 원형 빔"
 		effect_label.text = "갈래 %s / 메아리 %s / 낙하 %s / 공전 %s | 원본 %d 재시전 %d 대기 %d 제한 %d%s" % [
 			"3발" if _has_support(FAN_INDEX) else "OFF",
 			"ON" if _has_support(ECHO_INDEX) else "OFF",
@@ -228,8 +234,12 @@ func _spell_rank(spell_id: int) -> int:
 
 func _cast_snapshot(replace_hole: bool) -> Dictionary:
 	# Freeze the source spell, direction, rank and test settings for a delayed echo.
+	var aim := target_point
+	if selected_spell == 6 and _has_support(ORBIT_INDEX):
+		aim = START_POINT + Vector2.from_angle(thunder_orbit_phase) * ORBIT_SCRIPT.radius_for(thunder_rank)
+		thunder_orbit_phase += 0.82
 	return {
-		"spell": selected_spell, "origin": START_POINT, "aim": target_point,
+		"spell": selected_spell, "origin": START_POINT, "aim": aim,
 		"rank": _spell_rank(selected_spell), "density": particle_multiplier,
 		"motion": fireball_motion, "fan": _has_support(FAN_INDEX),
 		"echo": _has_support(ECHO_INDEX), "fall": _has_support(FALL_INDEX),
@@ -275,12 +285,12 @@ func _fire_wave(context: Dictionary, echo_copy: bool) -> int:
 	return successes
 
 func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, branch: int, branches: int) -> bool:
-	if bool(context.get("fall", false)) and not bool(context.get("_fall_arrived", false)):
+	if bool(context.get("fall", false)) and int(context["spell"]) not in FALL_PHYSICAL_SPELLS and not bool(context.get("_fall_arrived", false)):
 		if get_tree().get_nodes_in_group("vfx_fall_preview").size() >= MAX_FALL_PREVIEWS:
 			blocked_spawns += 1
 			return false
 		var warning = FALL_SCRIPT.new()
-		warning.configure(shot_aim)
+		warning.configure(shot_aim, null, Vector2(context["origin"]))
 		warning.arrived.connect(_on_fall_arrived.bind(context.duplicate(true), shot_aim, is_echo, branch, branches))
 		add_child(warning)
 		return true
@@ -292,6 +302,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	var motion: int = int(context["motion"])
 	var replace_hole: bool = bool(context["replace_hole"]) and not is_echo
 	var in_orbit: bool = bool(context.get("orbit", false))
+	var in_fall: bool = bool(context.get("fall", false)) and not bool(context.get("_fall_arrived", false))
 	var cast_aim: Vector2 = shot_aim
 	if in_orbit:
 		var heading: Vector2 = shot_aim - origin
@@ -360,6 +371,10 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		# Pure animation preview: no enemy, status effects, hitbox or spell combat.
 		var sword = ICE_SWORD_SCRIPT.new()
 		sword.configure(origin, shot_aim, density, rank, ice_sword_swings)
+		if in_orbit:
+			sword.aux_orbit = true
+			sword.orbit_anchor = origin
+			sword.orbit_angle = (shot_aim - origin).angle()
 		add_child(sword)
 		spawned_spell = sword
 		sword.add_to_group("vfx_ice_sword")
@@ -380,9 +395,9 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var orb = POISON_BALL_SCRIPT.new()
-		orb.configure(origin, cast_aim, density, rank)
 		if in_orbit:
 			orb.set_meta("aux_orbit", true)
+		orb.configure(origin, cast_aim, density, rank)
 		add_child(orb)
 		spawned_spell = orb
 		orb.add_to_group("vfx_poison_ball")
@@ -399,7 +414,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 10:
 		# Magicraft 1004 basic: instant straight beam, no refraction until a later test.
 		var ray = LASER_SCRIPT.new()
-		ray.configure(origin, shot_aim, density)
+		ray.configure(origin, shot_aim, density, in_orbit)
 		add_child(ray)
 		spawned_spell = ray
 		ray.add_to_group("vfx_laser")
@@ -424,10 +439,14 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var trap = THORN_SCRIPT.new()
-		trap.configure(origin, shot_aim, density, rank)
+		var trap_aim := shot_aim
 		if in_orbit:
-			trap.set_meta("aux_orbit", true)
-			trap.state = "ARMED" # orbit an armed trap instead of rolling
+			# Tangential throw, but normal trap setup after stopping.
+			var radial := (shot_aim - origin).normalized()
+			if radial.length_squared() < 0.001:
+				radial = Vector2.RIGHT
+			trap_aim = origin + radial * 125.0 + radial.orthogonal() * 230.0
+		trap.configure(origin, trap_aim, density, rank)
 		add_child(trap)
 		spawned_spell = trap
 		trap.add_to_group("vfx_thorn")
@@ -438,7 +457,13 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		return false
 	if is_echo:
 		spawned_spell.modulate.a = ECHO_PREVIEW_ALPHA
-	if in_orbit and spell_id != 9:
+	if in_fall and spell_id in FALL_PHYSICAL_SPELLS:
+		var descent = FALL_SCRIPT.new()
+		descent.configure(shot_aim, spawned_spell, Vector2(context["origin"]))
+		descent.arrived.connect(_on_actual_fall_arrived.bind(context.duplicate(true), spawned_spell, shot_aim, is_echo, branch, branches))
+		add_child(descent)
+		return true
+	if in_orbit and spell_id in [0, 1, 2, 3, 7]:
 		var driver = ORBIT_SCRIPT.new()
 		var phase: float = (shot_aim - origin).angle()
 		driver.configure(spawned_spell, origin, rank, _orbit_velocity(spell_id), phase, spell_id)
@@ -450,29 +475,91 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	if branches > 1:
 		label += " 갈래 %d/%d" % [branch, branches]
 	if in_orbit:
-		label += " [공전]"
+		label += " [접선 덫]" if spell_id == 4 else (" [원형 레이저]" if spell_id == 10 else " [공전]")
 	if bool(context.get("_fall_arrived", false)):
 		label += " [낙하 완료]"
 	var cast_id: int = harness.track(spawned_spell, label)
 	if spell_id == 10:
-		var beam_direction: Vector2 = (shot_aim - origin).normalized()
-		if beam_direction.length_squared() <= 0.001:
-			beam_direction = Vector2.RIGHT
-		harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
+		if in_orbit:
+			var ring_points := PackedVector2Array()
+			for i in range(37):
+				ring_points.append(origin + Vector2.from_angle(TAU * float(i) / 36.0) * float(LASER_SCRIPT.ORBIT_RADIUS))
+			harness.check_path(cast_id, ring_points)
+		else:
+			var beam_direction: Vector2 = (shot_aim - origin).normalized()
+			if beam_direction.length_squared() <= 0.001:
+				beam_direction = Vector2.RIGHT
+			harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
 	return true
+
+func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
+	if not is_instance_valid(visual) or visual.is_queued_for_deletion():
+		return
+	var kind: int = int(context["spell"])
+	var level: int = int(context["rank"])
+	var density: float = float(context["density"])
+	visual.global_position = landing
+	match kind:
+		0:
+			visual.set("destination", landing)
+		1:
+			visual.set("destination", landing)
+		2:
+			visual.call("configure", landing, landing + Vector2.RIGHT * 25.0, density)
+		3:
+			visual.set("spawn_pos", landing)
+			visual.set("drift", Vector2.ZERO)
+		4:
+			if bool(context["orbit"]):
+				# Tangential throw is retained only for the orbit exception.
+				var radial := (landing - Vector2(context["origin"])).normalized()
+				if radial.length_squared() < 0.001:
+					radial = Vector2.RIGHT
+				visual.call("configure", landing, landing + radial.orthogonal() * 250.0, density, level)
+			else:
+				# A falling mine should open at impact, not restart a ground roll.
+				visual.set("ground_pos", landing)
+				visual.set("state", "DEPLOYING")
+				visual.set("state_time", 0.0)
+				visual.set("seed_height", 0.0)
+		7:
+			visual.call("configure", landing, landing, density, level)
+		9:
+			visual.set("from_point", landing)
+			visual.set("to_point", landing)
+			visual.set("age", 0.0)
+			visual.set("distance", 0.0)
+			visual.set("last_world", landing)
+	if bool(context["orbit"]) and kind in [0, 1, 2, 3, 7]:
+		var driver = ORBIT_SCRIPT.new()
+		var direction: Vector2 = landing - Vector2(context["origin"])
+		driver.configure(visual, landing, level, _orbit_velocity(kind), direction.angle(), kind)
+		add_child(driver)
+	fired_count += 1
+	var label: String = SPELL_CHOICES[kind] + " [낙하]"
+	if is_echo:
+		label += " [메아리]"
+	if branches > 1:
+		label += " 갈래 %d/%d" % [branch, branches]
+	if bool(context["orbit"]):
+		label += " [공전]" if kind != 4 else " [접선 덫]"
+	harness.track(visual, label)
 
 func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
 	var landed_context := context.duplicate(true)
 	landed_context["_fall_arrived"] = true
 	# Non-orbit attacks start just above the impact point, rather than flying
 	# across the entire arena again after descent.
-	if bool(context["orbit"]):
+	if bool(context["orbit"]) and int(context["spell"]) in [5, 6, 10]:
+		# Special orbit VFX remain attached to the original caster center:
+		# sword hilt, lightning placement, and a full circular laser.
+		landed_context["origin"] = context["origin"]
+		_spawn_single_cast(landed_context, landing, is_echo, branch, branches)
+	elif bool(context["orbit"]):
 		landed_context["origin"] = landing
 		var outward: Vector2 = landing - Vector2(context["origin"])
 		if outward.length_squared() < 0.001:
 			outward = Vector2.RIGHT
-		# Keep a distant internal destination so projectile-specific arrival
-		# checks cannot immediately kill the new orbiting projectile.
 		_spawn_single_cast(landed_context, landing + outward.normalized() * 1200.0, is_echo, branch, branches)
 	else:
 		landed_context["origin"] = landing + Vector2(0.0, -65.0)

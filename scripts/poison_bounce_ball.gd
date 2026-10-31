@@ -34,7 +34,7 @@ func configure(origin: Vector2, target: Vector2, particle_scale: float, cast_ran
     end_point = target
     density = clampf(particle_scale, 0.0, 3.0)
     rank = clampi(cast_rank, 0, 3)
-    hop_count = int(HOPS[rank])
+    hop_count = int(HOPS[rank]) + (3 if has_meta("aux_orbit") else 0)
     hop_index = 0
     hop_clock = 0.0
     height = 0.0
@@ -76,10 +76,17 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
     if has_meta("aux_orbit"):
-        # The shared driver changes world position and emits sample landings.
-        # Do not also execute the straight-line bounce path or spawn puddles there.
+        # Each real bounce has a shortening flight and its own squash moment.
+        # The orbit driver handles XY while this VFX owns its vertical bounce.
         hop_clock += maxf(delta, 0.0)
-        height = 24.0 * absf(sin(hop_clock * 7.5))
+        var bounce_length := 0.75 * pow(0.86, float(mini(hop_index, 8)))
+        while hop_clock >= bounce_length:
+            hop_clock -= bounce_length
+            landed.emit(global_position, float(RADII[rank]), float(LIFETIMES[rank]))
+            hop_index += 1
+            bounce_length = 0.75 * pow(0.86, float(mini(hop_index, 8)))
+        var bounce_t := clampf(hop_clock / bounce_length, 0.0, 1.0)
+        height = 4.0 * maxf(10.0, 145.0 * pow(0.78, float(hop_index))) * bounce_t * (1.0 - bounce_t)
         queue_redraw()
         return
     hop_clock += maxf(delta, 0.0)
@@ -110,7 +117,7 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
     var radius := 16.0 + float(rank) * 2.0
-    var duration: float = hop_durations[hop_index] if hop_index < hop_count else 1.0
+    var duration: float = (0.75 * pow(0.86, float(mini(hop_index, 8)))) if has_meta("aux_orbit") else (hop_durations[hop_index] if hop_index < hop_count else 1.0)
     var phase := clampf(hop_clock / duration, 0.0, 1.0)
     var sh := 1.0 - height / 360.0
     draw_set_transform(Vector2.ZERO, 0.0, Vector2(sh, sh * 0.47))

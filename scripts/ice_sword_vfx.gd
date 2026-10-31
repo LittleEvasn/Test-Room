@@ -6,6 +6,7 @@ extends Node2D
 signal finished(at: Vector2)
 
 const SWORD_TEXTURE: Texture2D = preload("res://assets/얼음칼.png")
+const ORBIT_MOTION = preload("res://scripts/aux_orbit_motion.gd")
 # PNG: pommel/hilt END is at the top around (256,20).
 # Crossguard is near y=135; the BLADE begins below it and ends near y=490.
 # Rotate around the pommel, not the crossguard.
@@ -40,6 +41,11 @@ var age: float = 0.0
 var phase: String = "BEFORE"
 var last_emission_angle: float = 0.0
 var emitted_exit: bool = false
+var aux_orbit := false
+var orbit_anchor := Vector2.ZERO
+var orbit_angle := 0.0
+const ORBIT_SWORD_LIFE := 4.95
+const HANDLE_RADIUS := 58.0
 var ice_dust: Array[Dictionary] = []
 
 func configure(from_point: Vector2, to_point: Vector2, density: float, preview_rank: int, swing_number: int) -> void:
@@ -82,6 +88,20 @@ func _angle_at(sample_time: float) -> float:
     return first_angle + deg_to_rad(float(SCATTERS[rank])) * fraction * slash_sign
 
 func _process(delta: float) -> void:
+    if aux_orbit:
+        age += minf(delta, 0.10)
+        orbit_angle += ORBIT_MOTION.angular_speed_for(310.0, rank) * delta
+        var radial := Vector2.from_angle(orbit_angle)
+        global_position = orbit_anchor + radial * HANDLE_RADIUS
+        # The hilt stays closest to the player, blade extends radially outward.
+        present_angle = orbit_angle
+        phase = "NORMAL"
+        if age >= ORBIT_SWORD_LIFE:
+            finished.emit(global_position)
+            queue_free()
+            return
+        queue_redraw()
+        return
     var dt: float = minf(delta, 0.10)
     age += dt
     _advance_dust(dt)
@@ -310,6 +330,9 @@ func _draw_dust() -> void:
             draw_line(pos, pos + axis * size, Color(0.95, 1.0, 1.0, fraction * 0.74), 1.0, true)
 
 func _draw() -> void:
+    if aux_orbit:
+        _draw_sword(present_angle, 1.0)
+        return
     _draw_trail()
     var visible_alpha: float = _visibility()
     # Tiny motion ghost follows the same curve; avoid multiple ghost swords
