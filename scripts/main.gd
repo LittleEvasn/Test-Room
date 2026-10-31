@@ -13,6 +13,8 @@ const ICE_SWORD_SCRIPT = preload("res://scripts/ice_sword_vfx.gd")
 const THUNDER_SCRIPT = preload("res://scripts/thunder_vfx.gd")
 const LIGHTNING_ARC_SCRIPT = preload("res://scripts/lightning_arc_vfx.gd")
 const EMBER_TRAIL_SCRIPT = preload("res://scripts/ember_footprint_trail.gd")
+const FIREBALL_SCRIPT = preload("res://scripts/fireball_vfx.gd")
+const FIREBALL_IMPACT_SCRIPT = preload("res://scripts/fireball_impact_vfx.gd")
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -26,7 +28,7 @@ var fire_clock := 0.2
 var particle_multiplier := 1.0
 var fired_count := 0
 var impact_count := 0
-var selected_spell := 0 # 0..8 = 별빛탄/꽃폭탄/부메랑/블랙홀/가시꽃/서리검/벼락/잔불 발자국/번개 아크
+var selected_spell := 0 # 0..9; 9 is 화염구 (keyboard 0)
 var bloom_rank := 0
 var black_hole_rank := 0
 var black_hole_ticks := 0
@@ -47,6 +49,9 @@ var ember_rank := 1
 var ember_style := 2 # 0=A flow mask / 1=B generated flipbook / 2=C hybrid
 var ember_steps := 0
 var ember_finished := 0
+var fireball_rank := 0
+var fireball_impacts := 0
+var fireball_finished := 0
 
 var title_label: Label
 var info_label: Label
@@ -101,6 +106,11 @@ func _process(delta: float) -> void:
 			fired_count, ember_steps, get_tree().get_nodes_in_group("vfx_ember_patch").size(), ember_finished,
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
+	elif selected_spell == 9:
+		status_label.text = "선택 %s +%d | 폭발 반경 %.0f | 비행 %d  착탄 %d  완료 %d | 불티 %.1fx 자동 %s" % [
+			spell_name, fireball_rank, float(FIREBALL_SCRIPT.RADII[fireball_rank]), fired_count,
+			fireball_impacts, fireball_finished, particle_multiplier, "ON" if autofire else "OFF"
+		]
 	elif selected_spell == 8:
 		status_label.text = "선택 %s / VFX +%d  |  단일 줄기 / 분기 없음  |  시전 %d  종료 %d  |  외광 %.1fx  자동 %s" % [
 			spell_name, lightning_arc_rank, fired_count, lightning_arc_finished, particle_multiplier, "ON" if autofire else "OFF"
@@ -122,10 +132,11 @@ func _auto_interval() -> float:
 			return 1.55 if thunder_rank <= 1 else (2.20 if thunder_rank == 2 else 2.85)
 		7: return 4.4
 		8: return 1.15
+		9: return 1.35
 	return fire_interval
 
 func shoot(replace_hole: bool = false) -> void:
-	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_ember_trail").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size()
+	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_ember_trail").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size()
 	if active_count >= 50:
 		return
 	if selected_spell == 0:
@@ -196,6 +207,15 @@ func shoot(replace_hole: bool = false) -> void:
 		add_child(arc)
 		arc.add_to_group("vfx_lightning_arc")
 		arc.finished.connect(_on_lightning_arc_finished)
+	elif selected_spell == 9:
+		if get_tree().get_nodes_in_group("vfx_fireball").size() >= 6:
+			return
+		var fireball = FIREBALL_SCRIPT.new()
+		fireball.configure(START_POINT, target_point, particle_multiplier, fireball_rank)
+		add_child(fireball)
+		fireball.add_to_group("vfx_fireball")
+		fireball.impacted.connect(_on_fireball_impact.bind(fireball_rank))
+		fireball.finished.connect(_on_fireball_finished)
 	else:
 		# Unlike the black-hole preview, multiple deployed thorn traps are allowed.
 		if get_tree().get_nodes_in_group("vfx_thorn").size() >= 12:
@@ -208,6 +228,16 @@ func shoot(replace_hole: bool = false) -> void:
 		trap.triggered.connect(_on_thorn_triggered)
 		trap.vanished.connect(_on_thorn_vanished)
 	fired_count += 1
+
+func _on_fireball_impact(point: Vector2, cast_rank: int) -> void:
+	fireball_impacts += 1
+	var burst = FIREBALL_IMPACT_SCRIPT.new()
+	burst.global_position = point
+	burst.configure(float(FIREBALL_SCRIPT.RADII[cast_rank]), particle_multiplier)
+	add_child(burst)
+
+func _on_fireball_finished() -> void:
+	fireball_finished += 1
 
 func _on_bolt_impact(point: Vector2) -> void:
 	impact_count += 1
@@ -298,6 +328,7 @@ func _spell_name() -> String:
 		6: return "벼락"
 		7: return "잔불 발자국"
 		8: return "번개 아크"
+		9: return "화염구"
 	return "미지의 마법"
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -337,6 +368,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_9, KEY_KP_9:
 				selected_spell = 8
 				_update_title()
+			KEY_0, KEY_KP_0:
+				selected_spell = 9
+				_update_title()
 			KEY_Q:
 				if selected_spell == 3:
 					black_hole_rank = maxi(0, black_hole_rank - 1)
@@ -352,6 +386,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					ember_rank = maxi(0, ember_rank - 1)
 				elif selected_spell == 8:
 					lightning_arc_rank = maxi(0, lightning_arc_rank - 1)
+				elif selected_spell == 9:
+					fireball_rank = maxi(0, fireball_rank - 1)
 			KEY_E:
 				if selected_spell == 3:
 					black_hole_rank = mini(3, black_hole_rank + 1)
@@ -367,6 +403,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					ember_rank = mini(3, ember_rank + 1)
 				elif selected_spell == 8:
 					lightning_arc_rank = mini(3, lightning_arc_rank + 1)
+				elif selected_spell == 9:
+					fireball_rank = mini(3, fireball_rank + 1)
 			KEY_F:
 				if selected_spell == 7:
 					ember_style = (ember_style + 1) % 3
@@ -381,7 +419,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
 				particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
 			KEY_C:
-				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword", "vfx_thunder", "vfx_ember_trail", "vfx_lightning_arc"]:
+				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword", "vfx_thunder", "vfx_ember_trail", "vfx_lightning_arc", "vfx_fireball"]:
 					for projectile in get_tree().get_nodes_in_group(group_name):
 						projectile.queue_free()
 				# 이미 생성된 폭발은 자연스럽게 사라진다.
@@ -397,6 +435,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				thunder_strikes = 0
 				thunder_finished = 0
 				lightning_arc_finished = 0
+				fireball_impacts = 0
+				fireball_finished = 0
 				ember_steps = 0
 				ember_finished = 0
 
@@ -417,6 +457,7 @@ func _draw() -> void:
 		6: aiming_color = Color("76baff")
 		7: aiming_color = Color("ff9c4e")
 		8: aiming_color = Color("64aeff")
+		9: aiming_color = Color("ffbf62")
 	draw_line(START_POINT, target_point, Color(aiming_color, 0.09), 2.0)
 	draw_circle(START_POINT + Vector2(0, 22), 35.0, Color(0, 0, 0, 0.24))
 	draw_circle(START_POINT, 32.0, Color("6d658b"))
@@ -453,7 +494,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크\nQ/E 단계  ·  F 불꽃 A/B/C  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
+	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크  ·  0 화염구\nQ/E 단계  ·  F 불꽃 A/B/C  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
