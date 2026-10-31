@@ -222,3 +222,20 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 - **로컬 검증 항목:** `8`번 선택→`R` 자동 OFF 후 단일 경로 생성→불꽃 가장자리에 사각형이 남는지, 황백색 중심이 과하게 흰 덩어리가 되지 않는지 확인. `↑/↓` 밀도·`Q/E` 반경 비교. 8개/24개 장판이 겹칠 때 시각·성능 추가 확인. Godot 실행 전 시각 검증 완료로 취급하지 않는다.
 
 참고: [Godot CanvasItem shader COLOR/TEXTURE](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/canvas_item_shader.html), [Godot GPUParticles2D 텍스처](https://docs.godotengine.org/en/stable/classes/class_gpuparticles2d.html). 마법공예 화면은 **황백색 고온부와 주황색 외곽의 대비를 위한 시각 참고**이며 저작권이 있는 원본 게임 코드/텍스처를 가져오지 않았다.
+
+
+## 잔불 발자국 VFX v4 — 형상 자체를 교체, A/B/C 비교 (2026-10-31)
+
+**목적:** v3에서 가장 큰 문제였던 '주황색 털뭉치/둥근 입자'를 제거한다. 기존 v3 원형 화염 GPU 파티클 3레이어를 **모두 제거**하고 **연결된 화염 몸체를 가진 쿼드 셰이더**와 **독립 생성 플립북**으로 교체했다. 사각 투명도·붉은 색감을 회귀시키지 않는 것을 목표로 한다.
+
+**A — 마스크 + 상승 노이즈:** `shaders/ember_fire_mask.gdshader`. 3개의 서로 겹치는 물방울형 화염 줄기가 바닥에서 하나로 이어지며, 높은 부분일수록 왜곡이 증가한다. 노이즈 텍스처는 `FastNoiseLite + NoiseTexture2D`로 최초 한 번 생성해 공유한다. 2개 스케일의 노이즈가 서로 다른 속도로 상승하고, 외곽/황금색/황백색 심지가 **동일 필드의 서로 다른 임계값**을 사용해 내부가 분리된 원처럼 떠다니지 않는다.
+
+**B — 실제 애니메이션 플립북:** `scripts/ember_fire_flipbook_builder.gd`가 **12장의 80×88 원본 프레임을 코드로 생성**, 4×3 아틀라스를 1회 캐싱한다. `shaders/ember_fire_flipbook.gdshader`가 12fps로 프레임을 재생한다. 원본 Magicraft 추출 이미지/애니메이션을 복사하지 않으며, 3갈래 연결 화염·끝부분 난수 침식·밝은 심지를 독립 알고리즘으로 제작한다.
+
+**C — 혼합형(기본):** A의 화염 본체와 B의 낮은 강도 변형 화염을 함께 사용한다. 불꽃 부분은 **최대 두 쿼드**이고, 부수 효과인 작은 연기/불티만 별도 `GPUParticles2D` 두 개로 유지한다. 둥근 화염 본체 파티클은 사용하지 않는다. 모든 버전에서 바닥 열기는 기존 셰이더를 유지한다.
+
+**비교 방법:** Test-Room `8`번을 선택하고 `R`로 자동 반복을 끈다. `F`를 누를 때마다 **A 마스크 → B 플립북 → C 혼합**을 순환한다(초기값 C). 클릭 시 현재 모드로 새 경로가 생성되며, 기존 설치 경로의 모드는 바뀌지 않아 화면에서 나란히 비교할 수 있다. `Q/E`는 기존 강화별 반경 **24/30/36/42px**과 수명 **1.8/2.2/2.6/3.0초**를 유지한다. `↑/↓`는 보조 불티/연기 밀도 조절용이다.
+
+**자료 및 판단:** Federico Bellucci의 [Procedural Fire](https://blog.febucci.com/2019/05/fire-shader/), [Godot 2D Fire Mask](https://godotshaders.com/shader/2d-fire-mask/), [Anime Style Fire 2D](https://godotshaders.com/shader/anime-style-fire-2d/)의 서로 연결된 화염 마스크와 시간 흐름을 참고했다. Unity/Magicraft 원본 텍스처는 일절 반입하지 않았다.
+
+**검증 상태:** Godot 4.6 GL Compatibility 엔진의 실제 렌더/화염 애니메이션 및 컴파일 실행 검증은 수행하지 못했다. GitHub 정적 파일 검증과 UI 1~9 및 본게임 코드 보존을 확인한다. 로컬에서는 특히 B 아틀라스 최초 생성 지연, 12fps 반복 경계, A 노이즈 준비 시점, A/B/C의 지속시간, 여러 장판 오버드로우와 FPS를 확인해야 한다.

@@ -44,6 +44,7 @@ var thunder_finished := 0
 var lightning_arc_rank := 0
 var lightning_arc_finished := 0
 var ember_rank := 1
+var ember_style := 2 # 0=A flow mask / 1=B generated flipbook / 2=C hybrid
 var ember_steps := 0
 var ember_finished := 0
 
@@ -96,7 +97,7 @@ func _process(delta: float) -> void:
 		]
 	elif selected_spell == 7:
 		status_label.text = "선택 %s +%d (반경 %.0f / 유지 %.1fs)  |  경로 %d  생성 %d  활성 %d  종료 %d  |  입자 %.1fx  자동 %s" % [
-			spell_name, ember_rank, float(EMBER_TRAIL_SCRIPT.RADII[ember_rank]), float(EMBER_TRAIL_SCRIPT.LIFETIMES[ember_rank]),
+			spell_name + " / " + ["A:마스크", "B:플립북", "C:혼합"][ember_style], ember_rank, float(EMBER_TRAIL_SCRIPT.RADII[ember_rank]), float(EMBER_TRAIL_SCRIPT.LIFETIMES[ember_rank]),
 			fired_count, ember_steps, get_tree().get_nodes_in_group("vfx_ember_patch").size(), ember_finished,
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
@@ -183,7 +184,7 @@ func shoot(replace_hole: bool = false) -> void:
 		if get_tree().get_nodes_in_group("vfx_ember_trail").size() >= 3:
 			return
 		var trail = EMBER_TRAIL_SCRIPT.new()
-		trail.configure(START_POINT, target_point, particle_multiplier, ember_rank)
+		trail.configure(START_POINT, target_point, particle_multiplier, ember_rank, ember_style)
 		add_child(trail)
 		trail.add_to_group("vfx_ember_trail")
 		trail.step_ignited.connect(_on_ember_step)
@@ -366,6 +367,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					ember_rank = mini(3, ember_rank + 1)
 				elif selected_spell == 8:
 					lightning_arc_rank = mini(3, lightning_arc_rank + 1)
+			KEY_F:
+				if selected_spell == 7:
+					ember_style = (ember_style + 1) % 3
 			KEY_SPACE:
 				shoot(true)
 			KEY_T:
@@ -449,7 +453,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크\nQ/E 단계  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
+	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 잔불 발자국  ·  9 번개 아크\nQ/E 단계  ·  F 불꽃 A/B/C  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))

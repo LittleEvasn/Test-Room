@@ -15,17 +15,19 @@ var from_point: Vector2
 var to_point: Vector2
 var density: float = 1.0
 var preview_rank: int = 1
+var preview_style: int = 2
 var elapsed: float = 0.0
 var next_step: int = 0
 var track_length: float = 300.0
 var direction: Vector2 = Vector2.RIGHT
 var rng := RandomNumberGenerator.new()
 
-func configure(start: Vector2, target: Vector2, particle_scale: float, rank: int) -> void:
+func configure(start: Vector2, target: Vector2, particle_scale: float, rank: int, fire_style: int = 2) -> void:
     from_point = start
     to_point = target
     density = clampf(particle_scale, 0.0, 3.0)
     preview_rank = clampi(rank, 0, 3)
+    preview_style = clampi(fire_style, 0, 2)
     var delta := to_point - from_point
     direction = delta.normalized() if delta.length_squared() > 0.01 else Vector2.RIGHT
     track_length = clampf(delta.length() * 0.57, 120.0, 330.0)
@@ -52,6 +54,6 @@ func _ignite(index: int) -> void:
     patch.position = spawn_point
     var scale_for_radius := float(RADII[preview_rank]) / float(RADII[1])
     patch.configure(scale_for_radius * rng.randf_range(0.94, 1.06),
-        density, float(LIFETIMES[preview_rank]))
+        density, float(LIFETIMES[preview_rank]), preview_style)
     add_child(patch)
     step_ignited.emit(spawn_point)
