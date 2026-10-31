@@ -72,7 +72,8 @@ func _process(delta: float) -> void:
         return
 
     # The underlying spell is a moving black hole, not a fixed garden patch.
-    global_position = spawn_pos + drift * elapsed * 26.0
+    if not has_meta("aux_orbit"):
+        global_position = spawn_pos + drift * elapsed * 26.0
 
     tick_clock += delta
     while tick_clock >= TICK_INTERVAL:
