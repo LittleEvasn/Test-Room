@@ -147,15 +147,15 @@ func _seed_scale() -> float:
 func _paint_part(texture: Texture2D, angle: float, size: float, alpha: float, shift: Vector2 = Vector2.ZERO) -> void:
     draw_set_transform(shift, angle, Vector2.ONE * size)
     draw_texture(texture, -TEX_CENTER, Color(1.0, 1.0, 1.0, clampf(alpha, 0.0, 1.0)))
-    draw_set_transform()
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_seed() -> void:
     draw_set_transform(Vector2(0.0, 6.0), 0.0, Vector2(1.0, 0.30))
     draw_circle(Vector2.ZERO, 18.0 + seed_height * 0.045, Color(0.03, 0.06, 0.08, 0.27))
-    draw_set_transform()
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
     _paint_part(SEED_TEXTURE, seed_angle, _seed_scale(), 1.0, Vector2(0.0, -seed_height))
 
-func _draw_parts(unfold: float, alpha: float, snap := 0.0) -> void:
+func _draw_parts(unfold: float, alpha: float, snap: float = 0.0) -> void:
     var extent := _art_scale()
     # Original stem & leaf share the finished image's 512x512 origin.
     for i in LIMBS:
@@ -180,7 +180,7 @@ func _draw_opening() -> void:
 func _draw_armed(alpha: float = 1.0, size_fraction: float = 1.0) -> void:
     draw_set_transform(Vector2(0.0, 7.0), 0.0, Vector2(1.0, 0.33))
     draw_circle(Vector2.ZERO, trap_radius() * 0.9 * size_fraction, Color(0.04, 0.09, 0.06, 0.16 * alpha))
-    draw_set_transform()
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
     _paint_part(FINAL_TEXTURE, 0.0, _art_scale() * size_fraction, alpha)
     draw_arc(Vector2.ZERO, trap_radius(), 0.0, TAU, 72,
         Color(0.77, 0.91, 0.67, 0.12 * alpha), 1.2, true)
