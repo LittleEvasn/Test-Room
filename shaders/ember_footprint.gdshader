@@ -26,7 +26,7 @@ void fragment() {
     float breathing = 0.90 + 0.10 * sin(TIME * 7.3 + variation);
     float appear = smoothstep(0.0, 0.07, life);
     float vanish = 1.0 - smoothstep(0.74, 1.0, life);
-    float alpha = (soft_edge * 0.19 + hot_spot * 0.25) * breathing * appear * vanish;
-    vec3 rgb = mix(vec3(0.82, 0.18, 0.025), vec3(1.0, 0.60, 0.11), hot_spot);
+    float alpha = (soft_edge * 0.20 + hot_spot * 0.33) * breathing * appear * vanish;
+    vec3 rgb = mix(vec3(1.0, 0.44, 0.065), vec3(1.0, 0.86, 0.36), hot_spot);
     COLOR = vec4(rgb, alpha);
 }

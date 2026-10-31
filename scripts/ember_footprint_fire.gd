@@ -1,12 +1,12 @@
 extends Node2D
-## 잔불 발자국 v2: living procedural GPU flame blobs + ground heat + sparse smoke/embers.
+## 잔불 발자국 v3: masked GPU flame, brighter yellow-white heart, soft ground heat.
 ## No authored PNG, no combat logic, no hitboxes and no borrowed Magicraft assets.
 
 const GROUND_SHADER = preload("res://shaders/ember_footprint.gdshader")
 const FLAME_SHADER = preload("res://shaders/ember_flame_particle.gdshader")
 const BASE_LIFETIME := 2.2 # Main game's +1 preview. Other ranks are set by the trail.
 
-static var _flame_quad: GradientTexture2D
+static var _flame_quad: GradientTexture2D # Always has a transparent radial alpha mask.
 static var _smoke_quad: GradientTexture2D
 static var _spark_quad: GradientTexture2D
 static var _flame_scale: CurveTexture
@@ -34,19 +34,28 @@ func _ready() -> void:
     scale = Vector2.ONE * size_factor
     add_to_group("vfx_ember_patch")
     _make_ground_heat()
-    _make_fire(false)
-    _make_fire(true)
+    _make_fire(0) # orange/yellow outer envelope
+    _make_fire(1) # golden core
+    _make_fire(2) # small white-hot flickering center
     if particle_density > 0.0:
         _make_smoke()
         _make_embers()
 
-static func _plain_quad(size_px: int) -> GradientTexture2D:
+static func _flame_mask(size_px: int) -> GradientTexture2D:
+    # Never render an opaque rectangular quad. The alpha gradient is a
+    # failsafe even if a display shader is disabled or fails to compile.
     var gradient := Gradient.new()
     gradient.set_color(0, Color.WHITE)
-    gradient.set_color(1, Color.WHITE)
+    gradient.add_point(0.48, Color(1.0, 1.0, 1.0, 0.98))
+    gradient.add_point(0.74, Color(1.0, 1.0, 1.0, 0.66))
+    gradient.add_point(0.91, Color(1.0, 1.0, 1.0, 0.14))
+    gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
     var tex := GradientTexture2D.new()
     tex.width = size_px
     tex.height = size_px
+    tex.fill = GradientTexture2D.FILL_RADIAL
+    tex.fill_from = Vector2(0.5, 0.5)
+    tex.fill_to = Vector2(0.5, 0.0)
     tex.gradient = gradient
     return tex
 
@@ -85,7 +94,7 @@ static func _color_ramp(stops: Array[Dictionary]) -> GradientTexture1D:
 static func _ensure_shared_resources() -> void:
     if _flame_quad != null:
         return
-    _flame_quad = _plain_quad(48)
+    _flame_quad = _flame_mask(64)
     _smoke_quad = _soft_quad(46)
     _spark_quad = _soft_quad(12)
     _flame_scale = _scale_texture([
@@ -154,18 +163,46 @@ func _new_emitter(texture: Texture2D, count: int, particle_life: float,
     p.emitting = true
     return p
 
-func _make_fire(is_core: bool) -> void:
-    var count := maxi(3, roundi((7.0 if is_core else 13.0) * (0.42 + particle_density * 0.58)))
-    var p := _new_emitter(_flame_quad, count, 0.40 if is_core else 0.63,
-        Vector3(12.0, 2.0, 0.0) if is_core else Vector3(22.0, 3.5, 0.0),
-        7.0 if is_core else 12.0, 19.0 if is_core else 28.0,
-        28.0 if is_core else 41.0,
-        0.27 if is_core else 0.41, 0.45 if is_core else 0.74, _flame_scale)
-    p.position = Vector2(0.0, -5.0)
+func _make_fire(layer: int) -> void:
+    # Three independently emitted layers: warm outside, golden inside,
+    # and a small, genuinely luminous cream/yellow center.
+    var particle_count := 12
+    var particle_life := 0.58
+    var emission_width := 21.0
+    var min_speed := 10.0
+    var max_speed := 27.0
+    var spread_angle := 39.0
+    var size_min := 0.44
+    var size_max := 0.71
+    if layer == 1:
+        particle_count = 9
+        particle_life = 0.43
+        emission_width = 13.0
+        min_speed = 7.0
+        max_speed = 19.0
+        spread_angle = 30.0
+        size_min = 0.36
+        size_max = 0.59
+    elif layer == 2:
+        particle_count = 6
+        particle_life = 0.31
+        emission_width = 9.0
+        min_speed = 4.0
+        max_speed = 14.0
+        spread_angle = 24.0
+        size_min = 0.30
+        size_max = 0.47
+
+    var count := maxi(3, roundi(float(particle_count) * (0.45 + particle_density * 0.55)))
+    var p := _new_emitter(_flame_quad, count, particle_life,
+        Vector3(emission_width, 2.5, 0.0),
+        min_speed, max_speed, spread_angle,
+        size_min, size_max, _flame_scale)
+    p.position = Vector2(0.0, -4.0)
     var mat := ShaderMaterial.new()
     mat.shader = FLAME_SHADER
     mat.set_shader_parameter("variation", rng.randf_range(0.0, 80.0))
-    mat.set_shader_parameter("core_layer", 1.0 if is_core else 0.0)
+    mat.set_shader_parameter("heat_level", float(layer))
     p.material = mat
     add_child(p)
     emitters.append(p)

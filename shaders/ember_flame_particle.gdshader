@@ -1,17 +1,18 @@
 shader_type canvas_item;
 render_mode blend_mix, unshaded;
 
-// Per-particle procedural flame. No fixed 5-tongue silhouette.
-// INSTANCE_CUSTOM.y = each particle's normalized age in Godot 4.
+// A soft, irregular fire blob, not a rectangular particle sprite.
+// Explicitly use TEXTURE alpha: the GPU texture's transparent edge is a
+// robust second mask on top of the procedural flame silhouette.
 uniform float variation = 0.0;
-uniform float core_layer : hint_range(0.0, 1.0) = 0.0;
+uniform float heat_level : hint_range(0.0, 2.0) = 0.0;
 varying float flame_age;
 varying float flame_seed;
+varying vec4 vertex_tint;
 
 float hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
-
 float noise21(vec2 p) {
     vec2 i = floor(p);
     vec2 f = fract(p);
@@ -22,49 +23,58 @@ float noise21(vec2 p) {
         f.y
     );
 }
-
 void vertex() {
     flame_age = clamp(INSTANCE_CUSTOM.y, 0.0, 1.0);
     flame_seed = hash21(vec2(float(INSTANCE_ID) + 0.5, variation));
+    vertex_tint = COLOR;
 }
-
 void fragment() {
-    vec4 particle_tint = COLOR;
     float age = flame_age;
-    float phase = flame_seed * 17.0 + variation * 0.27;
+    float phase = flame_seed * 19.0 + variation * 0.31;
+    vec2 uv = (UV - 0.5) * 2.0;
 
-    // A different, constantly eroding blob for every particle.
-    vec2 uv = (UV - vec2(0.5)) * 2.0;
-    float breakup = noise21(uv * 3.3 + vec2(phase, -TIME * 4.3 - age));
-    float fold = noise21(uv * 5.0 + vec2(phase * 0.6, -TIME * 2.8 + age * 2.2));
-    uv.x += (breakup - 0.5) * 0.36 + (fold - 0.5) * 0.12;
-    uv.y += (fold - 0.5) * 0.21;
+    // Two differently scrolling noise fields continuously erode each blob.
+    float n1 = noise21(uv * 3.2 + vec2(phase, -TIME * 3.9 - age * 1.2));
+    float n2 = noise21(uv * 5.1 + vec2(phase * 0.61, -TIME * 2.6 + age * 2.8));
+    vec2 warped = uv;
+    warped.x += (n1 - 0.5) * 0.32 + (n2 - 0.5) * 0.12;
+    warped.y += (n2 - 0.5) * 0.17;
 
-    float dist = length(vec2(uv.x * 1.10, uv.y * 0.88));
-    float edge = dist + (breakup - 0.5) * 0.30;
-    float silhouette = 1.0 - smoothstep(0.56, 0.98, edge);
+    float dist = length(vec2(warped.x * 1.07, warped.y * 0.92));
+    float edge = dist + (n1 - 0.5) * 0.25;
+    float body = 1.0 - smoothstep(0.51, 0.98, edge);
 
-    // Tear the ascending half into smaller fragments near the end.
-    float upper_half = 1.0 - smoothstep(-0.5, 0.24, uv.y);
-    float erosion = smoothstep(0.22, 0.64, fold);
-    float breakup_weight = smoothstep(0.37, 0.93, age) * upper_half;
-    silhouette *= mix(1.0, erosion, breakup_weight * 0.77);
+    float upper = 1.0 - smoothstep(-0.54, 0.18, warped.y);
+    float breakup = smoothstep(0.17, 0.67, n2);
+    float tear = smoothstep(0.30, 0.87, age) * upper * 0.66;
+    body *= mix(1.0, breakup, tear);
 
-    float fade_in = smoothstep(0.0, 0.11, age);
-    float fade_out = 1.0 - smoothstep(0.61, 0.99, age);
-    float alpha = silhouette * fade_in * fade_out;
-    alpha *= mix(0.89, 1.0, breakup);
+    // Always mask with the source alpha. The original opaque white quad
+    // was able to show up as a square; this can no longer happen.
+    vec2 mask_uv = clamp(UV + (warped - uv) * 0.11, vec2(0.0), vec2(1.0));
+    float tex_alpha = texture(TEXTURE, mask_uv).a;
+    float appear = smoothstep(0.0, 0.11, age);
+    float fade = 1.0 - smoothstep(0.58, 0.99, age);
+    float alpha = body * tex_alpha * appear * fade * vertex_tint.a;
 
-    float heart = 1.0 - smoothstep(0.13, 0.66, dist);
-    float lower_half = smoothstep(-0.45, 0.75, uv.y);
-    float brightness = heart * (0.42 + 0.58 * lower_half) * (1.0 - age * 0.48);
-    vec3 outer = vec3(0.79, 0.155, 0.025);
-    vec3 orange = vec3(1.0, 0.42, 0.045);
-    vec3 gold = vec3(1.0, 0.77, 0.17);
-    vec3 pale = vec3(1.0, 0.94, 0.57);
-    vec3 rgb = mix(outer, orange, 0.42 + 0.45 * (1.0 - dist));
-    rgb = mix(rgb, gold, clamp(brightness * (0.64 + 0.30 * core_layer), 0.0, 1.0));
-    rgb = mix(rgb, pale, clamp(brightness * core_layer * 0.49, 0.0, 0.65));
+    // Most of the visible body is now yellow/orange, not brick-red.
+    float heart = 1.0 - smoothstep(0.12, 0.78, dist);
+    float base_strength = 0.53 + 0.47 * heart;
+    float heat = clamp(base_strength * (1.0 - age * 0.27), 0.0, 1.0);
+    vec3 warm_outer = vec3(1.0, 0.42, 0.075);
+    vec3 orange = vec3(1.0, 0.69, 0.16);
+    vec3 golden = vec3(1.0, 0.87, 0.39);
+    vec3 cream = vec3(1.0, 0.97, 0.75);
+    vec3 white_hot = vec3(1.0, 0.995, 0.92);
 
-    COLOR = vec4(rgb * particle_tint.rgb, alpha * particle_tint.a);
+    vec3 rgb = mix(warm_outer, orange, clamp(0.43 + 0.48 * heat, 0.0, 1.0));
+    rgb = mix(rgb, golden, clamp(0.17 + heat * (0.30 + 0.28 * min(heat_level, 1.0)), 0.0, 1.0));
+    if (heat_level > 0.5) {
+        float center = (0.34 + 0.66 * heart) * (1.0 - age * 0.20);
+        rgb = mix(rgb, cream, clamp(center * (0.40 + 0.23 * (heat_level - 1.0)), 0.0, 0.8));
+    }
+    if (heat_level > 1.5) {
+        rgb = mix(rgb, white_hot, clamp(heart * 0.75 + 0.21, 0.0, 0.94));
+    }
+    COLOR = vec4(rgb * vertex_tint.rgb, alpha);
 }

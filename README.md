@@ -199,3 +199,17 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 - **조작:** `8` 선택, 클릭/`Space` 생성, `Q/E` 단계, `↑/↓` 입자, `R` 자동 반복, `C` 정리. 8개 불꽃×최대 3경로 = 최대 24개 장판.
 - **참고:** [Charles Boury Making Fire](https://charlesboury.fr/articles/fire-fx-breakdown.html) (화염/연기/불티/지면 분리), [Cyanilux Fire/Flame Shader Breakdown](https://www.cyanilux.com/tutorials/fire-shader-breakdown/) (UV 노이즈). 외부 코드나 Magicraft 텍스처를 복사하지 않고 독자 구현했습니다.
 - **남은 검증:** GL Compatibility에서 GPU 파티클·셰이더 문법/출력, 실게임 배경에서의 불꽃 가독성, 겹친 8·24장판 성능, 초기 점화와 수명 끝 페이드, 캐릭터 가림 여부. 발광/화면 왜곡은 임의로 추가하지 않았습니다.
+
+
+## 잔불 발자국 VFX v3 — 사각 입자 제거와 황백색 중심 강화 (2026-10-31)
+
+사용자 피드백: v2가 자연스러워졌지만 **사각형 입자, 지나치게 붉은 화염, 마법공예 참고 화면 같은 밝은 중심부 부족**이 남아 있다.
+
+- **사각형 방지 두 단계:** v2의 전면 불투명 `_plain_quad(48)`를 제거. 새 64px **방사형 알파 텍스처**는 가장자리 alpha=0이며, `ember_flame_particle.gdshader`가 `texture(TEXTURE, mask_uv).a`를 **명시적으로 최종 alpha에 곱한다**. 이로써 텍스처 알파를 무시하거나 셰이더가 실패했을 때 보일 수 있던 흰색 불투명 사각형 위험을 줄인다. 실제 발생한 사각형의 정확한 원인은 추후 화면 검증.
+- **3단 화염:** 상대적으로 주황/노란 외부 화염(0.58초/12), 황금색 중심(0.43초/9), 작은 황백색 뜨거운 심지(0.31초/6)를 독립 GPU 이미터로 분리한다. 매 입자별 무작위 이동·노이즈 침식은 유지한다.
+- **팔레트 변경:** 벽돌색(기존 바깥 0.79,0.155,0.025)의 비중을 없애고 따뜻한 주황→금색→크림색→중앙 황백색으로 변경한다. 강제 HDR 블룸을 쓰지 않으므로 중심의 실제 표시 휘도는 모니터와 렌더러에 따라 다르다.
+- **지면 열기:** 기존 어두운 빨강 대신 따뜻한 주황/노랑을 적용. 연기·불티와 기존 경로 생성기는 유지한다.
+- **변경 범위:** `scripts/ember_footprint_fire.gd`, `shaders/ember_flame_particle.gdshader`, `shaders/ember_footprint.gdshader`만 VFX 로직 변경. 7번 벼락/9번 번개 아크 및 본게임 `LittleEvasn/witchlings-mayhem`은 변경하지 않는다.
+- **로컬 검증 항목:** `8`번 선택→`R` 자동 OFF 후 단일 경로 생성→불꽃 가장자리에 사각형이 남는지, 황백색 중심이 과하게 흰 덩어리가 되지 않는지 확인. `↑/↓` 밀도·`Q/E` 반경 비교. 8개/24개 장판이 겹칠 때 시각·성능 추가 확인. Godot 실행 전 시각 검증 완료로 취급하지 않는다.
+
+참고: [Godot CanvasItem shader COLOR/TEXTURE](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/canvas_item_shader.html), [Godot GPUParticles2D 텍스처](https://docs.godotengine.org/en/stable/classes/class_gpuparticles2d.html). 마법공예 화면은 **황백색 고온부와 주황색 외곽의 대비를 위한 시각 참고**이며 저작권이 있는 원본 게임 코드/텍스처를 가져오지 않았다.
