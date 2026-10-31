@@ -17,11 +17,14 @@ const POISON_PUDDLE_SCRIPT = preload("res://scripts/poison_puddle.gd")
 const FIREBALL_SCRIPT = preload("res://scripts/fireball_vfx.gd")
 const FIREBALL_IMPACT_SCRIPT = preload("res://scripts/fireball_impact_vfx.gd")
 const LASER_SCRIPT = preload("res://scripts/instant_laser_vfx.gd")
+const HARNESS_SCRIPT = preload("res://scripts/vfx_test_harness.gd")
 
 # Add any future spell here: the clickable catalog needs no new keyboard shortcut.
 const SPELL_CHOICES := ["별빛탄", "꽃폭탄", "달빛 부메랑", "블랙홀", "가시꽃 덫", "얼음검", "벼락", "독 탱탱볼", "번개 아크", "화염구", "광선"]
 # Only genuinely implemented test motions are selectable.
 const SPELL_TEST_MODES := {9: ["직선 비행", "공전", "급선회"]}
+# Stage 0 only: selectable slots; no auxiliary effect is applied to VFX yet.
+const SUPPORT_CHOICES := ["없음", "갈래", "추적", "도탄", "메아리", "낙하", "공전", "분열", "복제 궤적"]
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -66,9 +69,16 @@ var info_label: Label
 var status_label: Label
 var spell_picker: OptionButton
 var mode_picker: OptionButton
+var support_picker_1: OptionButton
+var support_picker_2: OptionButton
+var support_1 := 0
+var support_2 := 0
+var harness
 
 func _ready() -> void:
 	randomize()
+	harness = HARNESS_SCRIPT.new()
+	add_child(harness)
 	_create_hud()
 	queue_redraw()
 
@@ -153,6 +163,7 @@ func _auto_interval() -> float:
 	return fire_interval
 
 func shoot(replace_hole: bool = false) -> void:
+	var spawned_spell: Node2D = null
 	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
 		return
@@ -160,18 +171,21 @@ func shoot(replace_hole: bool = false) -> void:
 		var bolt = BOLT_SCRIPT.new()
 		bolt.configure(START_POINT, target_point, particle_multiplier)
 		add_child(bolt)
+		spawned_spell = bolt
 		bolt.add_to_group("vfx_bolt")
 		bolt.impacted.connect(_on_bolt_impact)
 	elif selected_spell == 1:
 		var bomb = BLOOM_SCRIPT.new()
 		bomb.configure(START_POINT, target_point, particle_multiplier, BLOOM_RADII[bloom_rank])
 		add_child(bomb)
+		spawned_spell = bomb
 		bomb.add_to_group("vfx_bloom")
 		bomb.impacted.connect(_on_bloom_impact.bind(bloom_rank))
 	elif selected_spell == 2:
 		var moon = MOON_SCRIPT.new()
 		moon.configure(START_POINT, target_point, particle_multiplier)
 		add_child(moon)
+		spawned_spell = moon
 		moon.add_to_group("vfx_moon")
 		moon.struck.connect(_on_moon_struck)
 		moon.returned.connect(_on_moon_returned)
@@ -188,6 +202,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var hole = BLACK_HOLE_SCRIPT.new()
 		hole.configure(target_point, START_POINT, particle_multiplier, black_hole_rank)
 		add_child(hole)
+		spawned_spell = hole
 		hole.add_to_group("vfx_hole")
 		hole.pulsed.connect(_on_black_hole_pulse)
 		hole.vanished.connect(_on_black_hole_vanished)
@@ -196,6 +211,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var sword = ICE_SWORD_SCRIPT.new()
 		sword.configure(START_POINT, target_point, particle_multiplier, ice_sword_rank, ice_sword_swings)
 		add_child(sword)
+		spawned_spell = sword
 		sword.add_to_group("vfx_ice_sword")
 		sword.finished.connect(_on_ice_sword_finished)
 		ice_sword_swings += 1
@@ -204,6 +220,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var lightning = THUNDER_SCRIPT.new()
 		lightning.configure(target_point, particle_multiplier, thunder_rank)
 		add_child(lightning)
+		spawned_spell = lightning
 		lightning.add_to_group("vfx_thunder")
 		lightning.struck.connect(_on_thunder_struck)
 		lightning.finished.connect(_on_thunder_finished)
@@ -214,6 +231,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var orb = POISON_BALL_SCRIPT.new()
 		orb.configure(START_POINT, target_point, particle_multiplier, poison_rank)
 		add_child(orb)
+		spawned_spell = orb
 		orb.add_to_group("vfx_poison_ball")
 		orb.landed.connect(_on_poison_land)
 		orb.finished.connect(_on_poison_finished)
@@ -222,6 +240,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var arc = LIGHTNING_ARC_SCRIPT.new()
 		arc.configure(START_POINT, target_point, particle_multiplier, lightning_arc_rank)
 		add_child(arc)
+		spawned_spell = arc
 		arc.add_to_group("vfx_lightning_arc")
 		arc.finished.connect(_on_lightning_arc_finished)
 	elif selected_spell == 10:
@@ -229,6 +248,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var ray = LASER_SCRIPT.new()
 		ray.configure(START_POINT, target_point, particle_multiplier)
 		add_child(ray)
+		spawned_spell = ray
 		ray.add_to_group("vfx_laser")
 		ray.finished.connect(_on_laser_finished)
 	elif selected_spell == 9:
@@ -237,6 +257,7 @@ func shoot(replace_hole: bool = false) -> void:
 		var fireball = FIREBALL_SCRIPT.new()
 		fireball.configure(START_POINT, target_point, particle_multiplier, fireball_rank, fireball_motion)
 		add_child(fireball)
+		spawned_spell = fireball
 		fireball.add_to_group("vfx_fireball")
 		fireball.impacted.connect(_on_fireball_impact.bind(fireball_rank))
 		fireball.finished.connect(_on_fireball_finished)
@@ -247,11 +268,21 @@ func shoot(replace_hole: bool = false) -> void:
 		var trap = THORN_SCRIPT.new()
 		trap.configure(START_POINT, target_point, particle_multiplier, thorn_rank)
 		add_child(trap)
+		spawned_spell = trap
 		trap.add_to_group("vfx_thorn")
 		trap.deployed.connect(_on_thorn_deployed)
 		trap.triggered.connect(_on_thorn_triggered)
 		trap.vanished.connect(_on_thorn_vanished)
 	fired_count += 1
+	# A single shared instrumentation path for every base VFX, independent of modifiers.
+	if spawned_spell != null:
+		var cast_id: int = harness.track(spawned_spell, _spell_name())
+		if selected_spell == 10:
+			# The instantaneous beam has no moving projectile body.
+			var beam_direction: Vector2 = (target_point - START_POINT).normalized()
+			if beam_direction.length_squared() <= 0.001:
+				beam_direction = Vector2.RIGHT
+			harness.check_beam(cast_id, START_POINT, START_POINT + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
 
 func _on_laser_finished() -> void:
 	laser_finished += 1
@@ -470,12 +501,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				laser_finished = 0
 				poison_landings = 0
 				poison_finished = 0
+				harness.reset_statistics()
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, SCREEN_SIZE), Color("1b2030"), true)
 	for x in range(0, 1601, 80):
-		draw_line(Vector2(x, 140), Vector2(x, 900), Color(0.62, 0.70, 0.9, 0.065), 1.0)
-	for y in range(140, 901, 80):
+		draw_line(Vector2(x, 186), Vector2(x, 900), Color(0.62, 0.70, 0.9, 0.065), 1.0)
+	for y in range(186, 901, 80):
 		draw_line(Vector2(0, y), Vector2(1600, y), Color(0.62, 0.70, 0.9, 0.065), 1.0)
 
 	var aiming_color := Color("ffd98e")
@@ -515,7 +547,7 @@ func _create_hud() -> void:
 	var panel := ColorRect.new()
 	panel.color = Color("111725")
 	panel.position = Vector2.ZERO
-	panel.size = Vector2(1600, 140)
+	panel.size = Vector2(1600, 186)
 	layer.add_child(panel)
 
 	title_label = Label.new()
@@ -526,14 +558,14 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "마법 선택: 오른쪽 목록 / PgUp·PgDn 이전·다음 (기존 1~0도 사용 가능)\n클릭·SPACE 발사   R 자동   Q/E 강화   F 실험 방식   T 덫 발동   ↑/↓ 입자   C 초기화"
+	info_label.text = "마법 선택: 목록 / PgUp·PgDn 이전·다음 (1~0 유지)  |  보조 1·2는 현재 선택만 가능\n클릭·SPACE 발사   R 자동   Q/E 강화   F 이동 방식   T 덫 발동   ↑/↓ 입자   C 기록 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
 	layer.add_child(info_label)
 
 	status_label = Label.new()
-	status_label.position = Vector2(36, 110)
+	status_label.position = Vector2(36, 151)
 	status_label.add_theme_font_size_override("font_size", 16)
 	status_label.add_theme_color_override("font_color", Color("a8b8d6"))
 	layer.add_child(status_label)
@@ -581,6 +613,53 @@ func _create_spell_controls(layer: CanvasLayer) -> void:
 	mode_picker.item_selected.connect(_on_test_mode_selected)
 	layer.add_child(mode_picker)
 	_refresh_test_modes()
+	_create_support_controls(layer)
+
+func _create_support_controls(layer: CanvasLayer) -> void:
+	var label_1 := Label.new()
+	label_1.text = "보조 1"
+	label_1.position = Vector2(880, 109)
+	label_1.add_theme_font_size_override("font_size", 16)
+	layer.add_child(label_1)
+
+	support_picker_1 = OptionButton.new()
+	support_picker_1.position = Vector2(953, 103)
+	support_picker_1.size = Vector2(233, 34)
+	for i in range(SUPPORT_CHOICES.size()):
+		support_picker_1.add_item(SUPPORT_CHOICES[i], i)
+	support_picker_1.select(0)
+	support_picker_1.item_selected.connect(_on_support_selected.bind(1))
+	support_picker_1.tooltip_text = "0단계: 선택 저장만 수행. 실제 효과는 추후 구현."
+	layer.add_child(support_picker_1)
+
+	var label_2 := Label.new()
+	label_2.text = "보조 2"
+	label_2.position = Vector2(1194, 109)
+	label_2.add_theme_font_size_override("font_size", 16)
+	layer.add_child(label_2)
+
+	support_picker_2 = OptionButton.new()
+	support_picker_2.position = Vector2(1267, 103)
+	support_picker_2.size = Vector2(293, 34)
+	for i in range(SUPPORT_CHOICES.size()):
+		support_picker_2.add_item(SUPPORT_CHOICES[i], i)
+	support_picker_2.select(0)
+	support_picker_2.item_selected.connect(_on_support_selected.bind(2))
+	support_picker_2.tooltip_text = "동일 보조의 중복 선택은 허용되지 않습니다."
+	layer.add_child(support_picker_2)
+
+func _on_support_selected(index: int, slot: int) -> void:
+	# The same auxiliary spell must not appear in both slots. Neither runs yet.
+	if slot == 1:
+		support_1 = index
+		if index != 0 and support_2 == index:
+			support_2 = 0
+			support_picker_2.select(0)
+	else:
+		support_2 = index
+		if index != 0 and support_1 == index:
+			support_1 = 0
+			support_picker_1.select(0)
 
 func _select_spell(index: int) -> void:
 	selected_spell = posmod(index, SPELL_CHOICES.size())
