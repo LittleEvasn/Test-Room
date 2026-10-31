@@ -24,7 +24,17 @@ const ROLL_DURATION := 1.55
 const OPEN_DURATION := 0.26
 const HIT_DURATION := 0.42
 const END_DURATION := 0.32
-const GRAVITY := 980.0
+# Magicraft Spell1012TrickMineSystem reference:
+# horizontal speed 8, gravity 15, initial fall speed -4, rebound ratio 0.33,
+# and effect rotation +/-15 degrees/sec. Units -> pixels are preview-only.
+const MINE_UNIT_PX := 64.0
+const MINE_HORIZONTAL_SPEED := 8.0 * MINE_UNIT_PX
+const MINE_GRAVITY := 15.0 * MINE_UNIT_PX
+const MINE_INITIAL_UP_SPEED := 4.0 * MINE_UNIT_PX
+const MINE_BOUNCE_RATIO := 0.33
+const MINE_ROTATION_SPEED := 15.0 * PI / 180.0
+const GROUND_DRAG := 3.0
+const SHADOW_HEIGHT_FACTOR := 0.53
 const LIMBS := 5
 const TEX_CENTER := Vector2(256.0, 256.0)
 const ART_RADIUS := 225.0
@@ -38,8 +48,13 @@ var ground_pos := Vector2.ZERO
 var travel_time := 0.0
 var state_time := 0.0
 var seed_height := 0.0
-var vertical_speed := 315.0
+var vertical_speed := MINE_INITIAL_UP_SPEED
+var planar_velocity := Vector2.ZERO
+var rotation_velocity := 0.0
 var seed_angle := 0.0
+var ground_hits := 0
+var has_touched_ground := false
+var stopped := false
 var dust: Array[Dictionary] = []
 
 func configure(from_point: Vector2, to_point: Vector2, particle_density: float, upgrade_rank: int) -> void:
@@ -49,6 +64,21 @@ func configure(from_point: Vector2, to_point: Vector2, particle_density: float, 
     global_position = from_point
     density = clampf(particle_density, 0.0, 3.0)
     rank = clampi(upgrade_rank, 0, 3)
+    # Aim sets direction, not a forced teleport-to-target landing position.
+    # The mine moves via its own initial velocity and floor impacts.
+    var direction: Vector2 = (to_point - from_point).normalized()
+    if direction.length_squared() < 0.001:
+        direction = Vector2.RIGHT
+    planar_velocity = direction * MINE_HORIZONTAL_SPEED
+    vertical_speed = MINE_INITIAL_UP_SPEED
+    seed_angle = randf_range(-PI, PI)
+    rotation_velocity = (-1.0 if direction.x >= 0.0 else 1.0) * MINE_ROTATION_SPEED
+    ground_hits = 0
+    has_touched_ground = false
+    stopped = false
+    travel_time = 0.0
+    state_time = 0.0
+    seed_height = 0.0
 
 func trap_radius() -> float:
     return float(RADII[rank])
@@ -94,26 +124,42 @@ func _process(delta: float) -> void:
     queue_redraw()
 
 func _roll(delta: float) -> void:
-    travel_time = minf(ROLL_DURATION, travel_time + delta)
-    var t := clampf(travel_time / ROLL_DURATION, 0.0, 1.0)
-    # Horizontal travel uses friction easing; vertical launch obeys gravity/rebound.
-    var progress := 1.0 - pow(1.0 - t, 1.46)
-    var previous_ground := ground_pos
-    ground_pos = origin.lerp(landing, progress)
-    global_position = ground_pos
-    seed_angle += ground_pos.distance_to(previous_ground) / 21.0
-    seed_height += vertical_speed * delta
-    vertical_speed -= GRAVITY * delta
-    if seed_height <= 0.0:
-        seed_height = 0.0
-        if absf(vertical_speed) >= 62.0 and t < 0.90:
-            vertical_speed = -vertical_speed * 0.39
-            _scatter_dust()
-        else:
-            vertical_speed = 0.0
-    if t >= 1.0:
-        global_position = landing
-        ground_pos = landing
+    # Use the mine's velocity, gravity and damped floor rebound rather than
+    # tweening all the way to the mouse target and spinning once per 21 pixels.
+    var step: float = minf(delta, ROLL_DURATION - travel_time)
+    travel_time += step
+    if not stopped:
+        ground_pos += planar_velocity * step
+        global_position = ground_pos
+        seed_angle += rotation_velocity * step
+
+        var falling_speed: float = vertical_speed - MINE_GRAVITY * step
+        seed_height += (vertical_speed + falling_speed) * 0.5 * step
+        vertical_speed = falling_speed
+        if seed_height <= 0.0:
+            seed_height = 0.0
+            if vertical_speed < -42.0 and ground_hits < 2:
+                # Original reference: movement loses energy at each contact.
+                vertical_speed = -vertical_speed * MINE_BOUNCE_RATIO
+                planar_velocity *= MINE_BOUNCE_RATIO
+                rotation_velocity *= MINE_BOUNCE_RATIO
+                ground_hits += 1
+                has_touched_ground = true
+                _scatter_dust()
+            else:
+                vertical_speed = 0.0
+                planar_velocity = Vector2.ZERO
+                rotation_velocity = 0.0
+                stopped = true
+        elif has_touched_ground:
+            # Friction after the first impact. Airborne launch remains ballistic.
+            var drag: float = exp(-GROUND_DRAG * step)
+            planar_velocity *= drag
+            rotation_velocity *= drag
+
+    if travel_time >= ROLL_DURATION:
+        # Deployment occurs at the physical resting point, never at the cursor.
+        global_position = ground_pos
         seed_height = 0.0
         state = DEPLOYING
         state_time = 0.0
@@ -142,7 +188,10 @@ func _art_scale() -> float:
     return trap_radius() / ART_RADIUS
 
 func _seed_scale() -> float:
-    return 0.54 + float(rank) * 0.055
+    # Measured non-transparent PNG bounds:
+    # seed = 123 px wide, core = 118 px wide (both on 512x512 canvas).
+    # At matching upgrade size, seed should be ~88% of the visible core.
+    return _art_scale() * 0.84
 
 func _paint_part(texture: Texture2D, angle: float, size: float, alpha: float, shift: Vector2 = Vector2.ZERO) -> void:
     draw_set_transform(shift, angle, Vector2.ONE * size)
@@ -151,9 +200,9 @@ func _paint_part(texture: Texture2D, angle: float, size: float, alpha: float, sh
 
 func _draw_seed() -> void:
     draw_set_transform(Vector2(0.0, 6.0), 0.0, Vector2(1.0, 0.30))
-    draw_circle(Vector2.ZERO, 18.0 + seed_height * 0.045, Color(0.03, 0.06, 0.08, 0.27))
+    draw_circle(Vector2.ZERO, 10.0 + seed_height * 0.030, Color(0.03, 0.06, 0.08, 0.21))
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-    _paint_part(SEED_TEXTURE, seed_angle, _seed_scale(), 1.0, Vector2(0.0, -seed_height))
+    _paint_part(SEED_TEXTURE, seed_angle, _seed_scale(), 1.0, Vector2(0.0, -seed_height * SHADOW_HEIGHT_FACTOR))
 
 func _draw_parts(unfold: float, alpha: float, snap: float = 0.0) -> void:
     var extent := _art_scale()
