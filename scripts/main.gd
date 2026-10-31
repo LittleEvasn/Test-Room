@@ -173,16 +173,19 @@ func _on_thorn_vanished(_point: Vector2) -> void:
 func _activate_nearest_thorn() -> void:
     # The test room has no enemies. T simulates one approaching the aimed trap.
     var selected_trap: Node2D = null
-    var nearest := INF
-    for trap in get_tree().get_nodes_in_group("vfx_thorn"):
-        if trap.is_queued_for_deletion() or trap.trap_state() != "ARMED":
+    var nearest: float = INF
+    for node in get_tree().get_nodes_in_group("vfx_thorn"):
+        var trap_node: Node2D = node as Node2D
+        if trap_node == null or trap_node.is_queued_for_deletion():
             continue
-        var distance := trap.global_position.distance_squared_to(target_point)
+        if trap_node.call("trap_state") != "ARMED":
+            continue
+        var distance: float = trap_node.global_position.distance_squared_to(target_point)
         if distance < nearest:
             nearest = distance
-            selected_trap = trap
+            selected_trap = trap_node
     if selected_trap != null:
-        selected_trap.trigger_trap()
+        selected_trap.call("trigger_trap")
 
 func _spell_name() -> String:
     match selected_spell:
