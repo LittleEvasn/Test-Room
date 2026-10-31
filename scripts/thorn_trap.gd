@@ -20,7 +20,9 @@ const TRIGGERED := "TRIGGERED"
 const EXPIRED := "EXPIRED"
 const RADII := [62.0, 80.0, 100.0, 125.0]
 const ARMED_SECONDS := [6.0, 7.0, 8.0, 9.0]
-const ROLL_DURATION := 1.55
+# The mine deploys when the actual source stop condition is met.
+# Magicraft's 3.5s lifetime is used ONLY as a fail-safe timeout here.
+const ROLL_TIMEOUT := 3.5
 const OPEN_DURATION := 0.26
 const HIT_DURATION := 0.42
 const END_DURATION := 0.32
@@ -29,8 +31,9 @@ const END_DURATION := 0.32
 # On floor impact: z speed *= -0.33 * 1.6; XY speed *= 0.66;
 # visual rotation *= 0.66. Stop when abs(z speed) <= 0.2 OR speed <= 0.2.
 # Source uses quaternion.Euler(RADIANS), therefore initial spin is 15 rad/s.
-# Only world-units -> canvas pixels (64), height projection (0.53), and the
-# 1.55s delayed trap deployment are Test-Room mapping/approved visual choices.
+# Unity's XY sprite viewed from +Z has Y up, while Godot CanvasItem Y is down.
+# Negate the SOURCE signed spin when mapping it to Godot's displayed angle.
+# World-units -> canvas pixels (64) and height projection (0.53) are previews.
 const MINE_UNIT_PX := 64.0
 const MINE_HORIZONTAL_SPEED := 8.0
 const MINE_GRAVITY := 15.0
@@ -78,7 +81,11 @@ func configure(from_point: Vector2, to_point: Vector2, particle_density: float, 
     vertical_speed = MINE_INITIAL_Z_SPEED
     source_z = 0.0
     seed_angle = randf_range(-PI, PI)
-    rotation_velocity = (-1.0 if direction.x >= 0.0 else 1.0) * MINE_ROTATION_SPEED
+    # Original ECS sign: Direction.x < 0 ? +15 : -15 in Unity XY (Y-up).
+    # Godot 2D angle is visually clockwise-positive in Y-down screen space.
+    # This inverted sign keeps the same VISIBLE direction as the source:
+    # rightward throw -> clockwise; leftward throw -> counterclockwise.
+    rotation_velocity = (1.0 if direction.x >= 0.0 else -1.0) * MINE_ROTATION_SPEED
     ground_hits = 0
     stopped = false
     travel_time = 0.0
@@ -132,7 +139,7 @@ func _roll(delta: float) -> void:
     # Direct port of the non-falling FireBall/TrickMine_Fall movement branch.
     # The source has NO distinct ground-roll state or arbitrary exponential drag.
     # Small physics substeps prevent Godot frame hitches skipping floor contacts.
-    var remaining: float = minf(delta, maxf(0.0, ROLL_DURATION - travel_time))
+    var remaining: float = minf(delta, maxf(0.0, ROLL_TIMEOUT - travel_time))
     while remaining > 0.000001:
         var step: float = minf(remaining, 1.0 / 120.0)
         remaining -= step
@@ -165,8 +172,9 @@ func _roll(delta: float) -> void:
         source_z = minf(0.0, source_z + vertical_speed * step)
         seed_height = -source_z * MINE_UNIT_PX
 
-    if travel_time >= ROLL_DURATION:
-        # Original mine would explode; this game substitutes snap-open deployment.
+    if stopped or travel_time >= ROLL_TIMEOUT:
+        # Source motion ends when it meets the original 0.2 speed threshold.
+        # Our game substitutes snap-open installation for the mine's lifecycle.
         global_position = ground_pos
         seed_height = 0.0
         state = DEPLOYING
