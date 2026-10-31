@@ -72,19 +72,30 @@ func _process(delta: float) -> void:
         return
 
     # The underlying spell is a moving black hole, not a fixed garden patch.
-    if not has_meta("aux_orbit"):
+    if not has_meta("aux_orbit") and not has_meta("aux_falling") and not has_meta("aux_fall_landed"):
         global_position = spawn_pos + drift * elapsed * 26.0
 
     tick_clock += delta
     while tick_clock >= TICK_INTERVAL:
         tick_clock -= TICK_INTERVAL
-        if elapsed < LIFETIME - COLLAPSE_TIME:
+        # Magicraft 1007 falling black hole does NOT tick or pull midair.
+        if not has_meta("aux_falling") and not has_meta("aux_fall_landed") and elapsed < LIFETIME - COLLAPSE_TIME:
             pulsed.emit(global_position, _radius())
 
     _advance_motes(delta)
     if elapsed < LIFETIME - COLLAPSE_TIME:
         _emit_motes(delta)
 
+    _update_visual()
+    queue_redraw()
+
+func fall_impact() -> void:
+    # Landing collapses the original black-hole shader, no new object.
+    # Keep the active shader/motes updating while the collapse fades.
+    set_meta("aux_fall_landed", true)
+    spawn_pos = global_position
+    drift = Vector2.ZERO
+    elapsed = LIFETIME - COLLAPSE_TIME
     _update_visual()
     queue_redraw()
 
