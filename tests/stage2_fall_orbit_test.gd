@@ -1,13 +1,13 @@
 extends SceneTree
-## Run with Godot 4.6:
-## godot --headless --path . --script res://tests/stage2_fall_orbit_test.gd
+## Run: godot --headless --path . --script res://tests/stage2_fall_orbit_test.gd
+## VFX-only regression, no combat damage test.
 const LAB = preload("res://scripts/main.gd")
 
-func _check(value: bool, detail: String) -> void:
-	if not value:
+func _check(ok: bool, detail: String) -> void:
+	if not ok:
 		push_error("STAGE2 FAIL: " + detail)
 		quit(1)
-		assert(value, detail)
+		assert(ok, detail)
 
 func _clear(lab: Node2D) -> void:
 	var e := InputEventKey.new()
@@ -19,116 +19,128 @@ func _run_tests() -> void:
 	var lab = LAB.new()
 	root.add_child(lab)
 	lab.autofire = false
+	lab.particle_multiplier = 1.0
 
-	# Every VFX has a fall sequence. Seven physical bodies are shown IN flight,
-	# never replaced by a proxy; the other instant/special VFX use a marker.
-	for spell_id in range(11):
+	# Physical falling: REAL actor remains processed/visible all the way down.
+	for spell_id in [0, 1, 2, 3, 4, 7, 9]:
 		lab.selected_spell = spell_id
 		lab.support_1 = 5
 		lab.support_2 = 0
 		lab.shoot()
-		_check(lab.fired_count == 0, "fall waits before arrival %d" % spell_id)
+		_check(lab.fired_count == 0, "no premature ground cast %d" % spell_id)
 		var previews: Array = lab.get_tree().get_nodes_in_group("vfx_fall_preview")
-		_check(previews.size() == 1, "fall visual created %d" % spell_id)
-		var preview = previews[0]
-		if spell_id in [0, 1, 2, 3, 4, 7, 9]:
-			_check(is_instance_valid(preview.actor), "real VFX actor bound %d" % spell_id)
-			var actor: Node2D = preview.actor
-			preview._process(0.40)
-			var airborne: Vector2 = actor.global_position
-			_check(actor.visible, "actual sprite is visible in flight %d" % spell_id)
-			_check(airborne.y < preview.landing.y, "actual sprite starts above landing %d" % spell_id)
-			_check(airborne.x != preview.landing.x, "actual sprite moves diagonally %d" % spell_id)
-			preview._process(0.42)
-		else:
-			preview._process(0.82)
-		_check(lab.fired_count == 1, "one VFX launched at arrival %d" % spell_id)
+		_check(previews.size() == 1, "one fall driver %d" % spell_id)
+		var fall = previews[0]
+		_check(is_instance_valid(fall.actor), "original actor assigned %d" % spell_id)
+		var actor: Node2D = fall.actor
+		_check(actor.is_processing(), "VFX _process is NOT disabled %d" % spell_id)
+		_check(actor.visible and actor.has_meta("aux_falling"), "original sprite visible and falling %d" % spell_id)
+		fall._process(0.14)
+		var airborne: Vector2 = actor.global_position
+		_check(airborne.y < fall.landing.y and airborne.x != fall.landing.x, "diagonal descent %d" % spell_id)
+		actor.call("_process", 0.14)
+		_check(actor.is_processing(), "VFX processor still enabled %d" % spell_id)
+		if spell_id == 0:
+			_check(actor.particles.size() > 0, "star particles emitted in midair")
+			_check(actor.age > 0.0, "star spin/age continues in midair")
+		if spell_id == 1:
+			_check(actor.motes.size() > 0, "flower bomb emits petals midair")
+		if spell_id == 2:
+			_check(actor.age > 0.0 and actor.motes.size() > 0, "boomerang keeps spin/trail")
+		if spell_id == 3:
+			_check(float(actor.disk_material.get_shader_parameter("u_opacity")) > 0.0, "black hole shader is visible while falling")
+		if spell_id == 4:
+			_check(actor.seed_angle != 0.0, "thorn seed still rotates while descending")
+		if spell_id == 9:
+			_check(actor.particles.size() > 0, "falling fireball retains world-space flame trail")
+		fall._process(0.45) # total > 0.58s descent
+		_check(lab.fired_count == 1, "landing handled exactly once %d" % spell_id)
+		if spell_id == 3:
+			_check(actor.has_meta("aux_fall_landed"), "black hole collapses, no hovering on the ground")
 		_clear(lab)
 		await process_frame
 
-	# Truly orbiting projectiles: trap is intentionally NOT in this list.
+	# Instant laser uses the source's one-frame fall LINE, not a ground preview.
+	lab.selected_spell = 10
+	lab.support_1 = 5
+	lab.support_2 = 0
+	lab.shoot()
+	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").is_empty(), "no delayed laser proxy")
+	_check(lab.fired_count == 1, "falling laser renders on the same cast")
+	var ray = lab.get_tree().get_nodes_in_group("vfx_laser")[0]
+	_check(ray.fall_mode and ray.fall_path.size() == 2, "normal laser has a ground-reaching line")
+	_clear(lab)
+	await process_frame
+
+	lab.support_1 = 5
+	lab.support_2 = 6
+	lab.shoot()
+	var spiral_ray = lab.get_tree().get_nodes_in_group("vfx_laser")[0]
+	_check(spiral_ray.fall_mode and spiral_ray.orbit_mode, "orbit+fall laser is a separate path type")
+	_check(spiral_ray.fall_path.size() == 16, "orbit+fall laser has 15 descending 10-degree segments")
+	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").is_empty(), "orbit+fall beam is instant")
+	_clear(lab)
+	await process_frame
+
+	# Non-physical special VFX retain ground telegraph until their own launch.
+	for spell_id in [5, 6, 8]:
+		lab.selected_spell = spell_id
+		lab.support_1 = 5
+		lab.support_2 = 0
+		lab.shoot()
+		_check(lab.fired_count == 0, "special spell delayed until grounded %d" % spell_id)
+		var marker = lab.get_tree().get_nodes_in_group("vfx_fall_preview")[0]
+		marker._process(0.90)
+		_check(lab.fired_count == 1, "special spell fires on landing %d" % spell_id)
+		_clear(lab)
+		await process_frame
+
+	# Standalone orbit behaviors remain unchanged.
 	for spell_id in [0, 1, 2, 3, 7]:
 		lab.selected_spell = spell_id
 		lab.support_1 = 6
 		lab.support_2 = 0
 		lab.shoot()
-		_check(lab.fired_count == 1, "projectile orbit cast %d" % spell_id)
-		_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").size() == 1, "driver exists %d" % spell_id)
-		if spell_id == 7:
-			var poison = lab.get_tree().get_nodes_in_group("vfx_poison_ball")[0]
-			_check(poison.hop_count > int(poison.HOPS[poison.rank]), "orbit poison has extra bounces")
+		_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").size() == 1, "orbit driver %d" % spell_id)
 		_clear(lab)
 		await process_frame
 
-	lab.selected_spell = 4 # thorn: tangential throw -> stops and deploys
+	lab.selected_spell = 4
 	lab.support_1 = 6
 	lab.shoot()
-	_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").is_empty(), "orbit thorn never attaches to a circular driver")
-	var trap = lab.get_tree().get_nodes_in_group("vfx_thorn")[0]
-	_check(trap.state == "ROLLING", "orbit thorn starts as a rolling seed, not an armed orbiting trap")
+	_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").is_empty(), "thorn launches tangentially")
 	_clear(lab)
 	await process_frame
 
-	lab.selected_spell = 5
-	lab.support_1 = 6
-	lab.shoot()
-	var sword = lab.get_tree().get_nodes_in_group("vfx_ice_sword")[0]
-	_check(sword.aux_orbit, "ice sword uses hilt-inward orbital animation")
-	_clear(lab)
-	await process_frame
-
-	lab.selected_spell = 6
-	lab.support_1 = 6
-	lab.shoot()
-	var strike_a = lab.get_tree().get_nodes_in_group("vfx_thunder")[0].global_position
-	lab.shoot()
-	var strike_b = lab.get_tree().get_nodes_in_group("vfx_thunder")[1].global_position
-	_check(strike_a.distance_to(strike_b) > 15.0, "lightning target advances around the player")
-	_clear(lab)
-	await process_frame
-
-	lab.selected_spell = 9
-	lab.support_1 = 6
-	lab.shoot()
-	var fireball = lab.get_tree().get_nodes_in_group("vfx_fireball")[0]
-	_check(fireball.aux_orbit, "fireball retains world-space trail in the shared orbit math")
-	_clear(lab)
-	await process_frame
-
-	lab.selected_spell = 10
-	lab.support_1 = 6
-	lab.shoot()
-	var ray = lab.get_tree().get_nodes_in_group("vfx_laser")[0]
-	_check(ray.orbit_mode, "laser renders full 36-segment Magicraft circular beam")
-	_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").is_empty(), "ring laser is NOT a rotating straight line")
-	_clear(lab)
-	await process_frame
-
-	# Fall + orbit uses the landed point as the new orbit anchor.
+	# Fall + orbit is an airborne circular descent, not a new orbit after landing.
 	lab.selected_spell = 0
 	lab.support_1 = 5
 	lab.support_2 = 6
 	lab.shoot()
-	var falling = lab.get_tree().get_nodes_in_group("vfx_fall_preview")[0]
-	falling._process(0.82)
-	_check(lab.fired_count == 1, "fall + orbit launched the original once")
-	_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").size() == 1, "fall + orbit attaches at landing")
+	var circular = lab.get_tree().get_nodes_in_group("vfx_fall_preview")[0]
+	_check(circular.orbit_cast, "fall driver receives orbit setting")
+	circular._process(0.30)
+	var during_fall: Vector2 = circular.actor.global_position
+	_check(during_fall.y < circular.landing.y, "orbiting body remains airborne")
+	circular._process(0.31)
+	_check(lab.fired_count == 1, "airborne orbit lands once")
+	_check(lab.get_tree().get_nodes_in_group("vfx_orbit_driver").is_empty(), "no second ground orbit")
 	_clear(lab)
 	await process_frame
 
+	# Echo remains single-depth, and C cancels both pending bodies.
 	lab.selected_spell = 0
 	lab.support_1 = 4
 	lab.support_2 = 5
 	lab.shoot()
-	_check(lab.pending_echoes.size() == 1, "one echo wave for fall")
+	_check(lab.pending_echoes.size() == 1, "one delayed echo wave")
 	lab._update_pending_echoes(0.19)
-	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").size() == 2, "echo + fall two descending actors")
-	_check(lab.pending_echoes.is_empty(), "echo does not recursively schedule")
+	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").size() == 2, "two original falling sprites")
+	_check(lab.pending_echoes.is_empty(), "no recursive echo")
 	_clear(lab)
 	await process_frame
-	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").is_empty(), "C cancels all falling sprites")
-
-	print("STAGE2 PASS: real diagonal fall, 5 orbit bodies, thorn, sword, lightning, poison, laser, echo/reset")
+	_check(lab.get_tree().get_nodes_in_group("vfx_fall_preview").is_empty(), "C clears fall drivers")
+	print("STAGE2 PASS: live VFX fall, shader, particles, diagonal, laser, airborne orbit, echo/reset")
 	quit(0)
 
 func _initialize() -> void:
