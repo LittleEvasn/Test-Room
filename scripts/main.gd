@@ -1,5 +1,5 @@
 extends Node2D
-## Stage-1 fan and echo experiments on the existing independent VFX catalogue.
+## Stage-2 falling and orbital VFX previews on the shared fan/echo runner.
 
 const BOLT_SCRIPT = preload("res://scripts/star_bolt.gd")
 const IMPACT_SCRIPT = preload("res://scripts/impact_burst.gd")
@@ -18,15 +18,21 @@ const FIREBALL_SCRIPT = preload("res://scripts/fireball_vfx.gd")
 const FIREBALL_IMPACT_SCRIPT = preload("res://scripts/fireball_impact_vfx.gd")
 const LASER_SCRIPT = preload("res://scripts/instant_laser_vfx.gd")
 const HARNESS_SCRIPT = preload("res://scripts/vfx_test_harness.gd")
+const ORBIT_SCRIPT = preload("res://scripts/aux_orbit_motion.gd")
+const FALL_SCRIPT = preload("res://scripts/aux_fall_preview.gd")
 
 # Add any future spell here: the clickable catalog needs no new keyboard shortcut.
 const SPELL_CHOICES := ["별빛탄", "꽃폭탄", "달빛 부메랑", "블랙홀", "가시꽃 덫", "얼음검", "벼락", "독 탱탱볼", "번개 아크", "화염구", "광선"]
 # Only genuinely implemented test motions are selectable.
 const SPELL_TEST_MODES := {9: ["직선 비행", "공전", "급선회"]}
-# Stage 1: fan and echo active, remaining auxiliaries are UI-only.
+# Stage 2: fall/orbit now active for compatible VFX types.
 const SUPPORT_CHOICES := ["없음", "갈래", "추적", "도탄", "메아리", "낙하", "공전", "분열", "복제 궤적"]
 const FAN_INDEX := 1
 const ECHO_INDEX := 4
+const FALL_INDEX := 5
+const ORBIT_INDEX := 6
+const ORBIT_SPELLS := [0, 1, 2, 3, 4, 7, 9]
+const MAX_FALL_PREVIEWS := 18
 const FAN_ANGLE := 0.24 # radians, same base fan spacing as the main game
 const ECHO_DELAY := 0.18
 const ECHO_PREVIEW_ALPHA := 0.35 # visual-only substitute for damage scaling
@@ -89,6 +95,7 @@ var harness
 func _ready() -> void:
 	randomize()
 	harness = HARNESS_SCRIPT.new()
+	harness.process_priority = 200
 	add_child(harness)
 	_create_hud()
 	queue_redraw()
@@ -161,12 +168,16 @@ func _process(delta: float) -> void:
 	if effect_label != null:
 		var pending: Array[String] = []
 		for chosen in [support_1, support_2]:
-			if chosen != 0 and chosen != FAN_INDEX and chosen != ECHO_INDEX:
+			if chosen != 0 and chosen != FAN_INDEX and chosen != ECHO_INDEX and chosen != FALL_INDEX and chosen != ORBIT_INDEX:
 				pending.append(SUPPORT_CHOICES[chosen])
 		var note := " | 미구현: " + ", ".join(pending) if not pending.is_empty() else ""
-		effect_label.text = "갈래 %s / 메아리 %s | 원본 %d  재시전 %d  대기 %d  발사 제한 %d%s" % [
+		if _has_support(ORBIT_INDEX) and not _orbit_supported(selected_spell):
+			note += " | 이 마법은 공전 미지원"
+		effect_label.text = "갈래 %s / 메아리 %s / 낙하 %s / 공전 %s | 원본 %d 재시전 %d 대기 %d 제한 %d%s" % [
 			"3발" if _has_support(FAN_INDEX) else "OFF",
-			"0.18초" if _has_support(ECHO_INDEX) else "OFF",
+			"ON" if _has_support(ECHO_INDEX) else "OFF",
+			"ON" if _has_support(FALL_INDEX) else "OFF",
+			"ON" if _has_support(ORBIT_INDEX) and _orbit_supported(selected_spell) else "OFF",
 			original_casts, echo_casts, pending_echoes.size(), blocked_spawns, note
 		]
 	queue_redraw()
@@ -188,6 +199,19 @@ func _auto_interval() -> float:
 func _has_support(index: int) -> bool:
 	return support_1 == index or support_2 == index
 
+func _orbit_supported(spell_id: int) -> bool:
+	return spell_id in ORBIT_SPELLS
+
+func _orbit_velocity(spell_id: int) -> float:
+	match spell_id:
+		0: return 720.0
+		1: return 455.0
+		2: return 460.0
+		3, 4: return 320.0
+		7: return 400.0 # preview-only value; original motion is a bounce
+		9: return float(FIREBALL_SCRIPT.PREVIEW_SPEED)
+	return 320.0
+
 func _spell_rank(spell_id: int) -> int:
 	match spell_id:
 		1: return bloom_rank
@@ -206,7 +230,9 @@ func _cast_snapshot(replace_hole: bool) -> Dictionary:
 		"spell": selected_spell, "origin": START_POINT, "aim": target_point,
 		"rank": _spell_rank(selected_spell), "density": particle_multiplier,
 		"motion": fireball_motion, "fan": _has_support(FAN_INDEX),
-		"echo": _has_support(ECHO_INDEX), "replace_hole": replace_hole
+		"echo": _has_support(ECHO_INDEX), "fall": _has_support(FALL_INDEX),
+		"orbit": _has_support(ORBIT_INDEX) and _orbit_supported(selected_spell),
+		"replace_hole": replace_hole
 	}
 
 func shoot(replace_hole: bool = false) -> void:
@@ -247,12 +273,23 @@ func _fire_wave(context: Dictionary, echo_copy: bool) -> int:
 	return successes
 
 func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, branch: int, branches: int) -> bool:
+	if bool(context.get("fall", false)) and not bool(context.get("_fall_arrived", false)):
+		if get_tree().get_nodes_in_group("vfx_fall_preview").size() >= MAX_FALL_PREVIEWS:
+			blocked_spawns += 1
+			return false
+		var warning = FALL_SCRIPT.new()
+		warning.configure(shot_aim)
+		warning.arrived.connect(_on_fall_arrived.bind(context.duplicate(true), shot_aim, is_echo, branch, branches))
+		add_child(warning)
+		return true
+
 	var spell_id: int = int(context["spell"])
 	var origin: Vector2 = context["origin"]
 	var density: float = float(context["density"])
 	var rank: int = int(context["rank"])
 	var motion: int = int(context["motion"])
 	var replace_hole: bool = bool(context["replace_hole"]) and not is_echo
+	var in_orbit: bool = bool(context.get("orbit", false))
 	var spawned_spell: Node2D = null
 	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
@@ -261,6 +298,8 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	if spell_id == 0:
 		var bolt = BOLT_SCRIPT.new()
 		bolt.configure(origin, shot_aim, density)
+		if in_orbit:
+			bolt.set_meta("aux_orbit", true)
 		add_child(bolt)
 		spawned_spell = bolt
 		bolt.add_to_group("vfx_bolt")
@@ -268,6 +307,8 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 1:
 		var bomb = BLOOM_SCRIPT.new()
 		bomb.configure(origin, shot_aim, density, BLOOM_RADII[rank])
+		if in_orbit:
+			bomb.set_meta("aux_orbit", true)
 		add_child(bomb)
 		spawned_spell = bomb
 		bomb.add_to_group("vfx_bloom")
@@ -275,6 +316,8 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 2:
 		var moon = MOON_SCRIPT.new()
 		moon.configure(origin, shot_aim, density)
+		if in_orbit:
+			moon.set_meta("aux_orbit", true)
 		add_child(moon)
 		spawned_spell = moon
 		moon.add_to_group("vfx_moon")
@@ -284,7 +327,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		# 이펙트 평가 중에는 블랙홀 한 개에만 집중한다.
 		# 자동 발사는 기존 개체가 소멸할 때까지 기다리고, 수동 발사는 위치를 바꿔 다시 소환한다.
 		var active_holes := get_tree().get_nodes_in_group("vfx_hole")
-		if not bool(context["fan"]) and not bool(context["echo"]):
+		if not bool(context["fan"]) and not bool(context["echo"]) and not in_orbit:
 			if not active_holes.is_empty():
 				if not replace_hole:
 					return false
@@ -295,7 +338,9 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var hole = BLACK_HOLE_SCRIPT.new()
-		hole.configure(shot_aim, origin, density, rank)
+		hole.configure(origin if in_orbit else shot_aim, origin, density, rank)
+		if in_orbit:
+			hole.set_meta("aux_orbit", true)
 		add_child(hole)
 		spawned_spell = hole
 		hole.add_to_group("vfx_hole")
@@ -326,6 +371,8 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			return false
 		var orb = POISON_BALL_SCRIPT.new()
 		orb.configure(origin, shot_aim, density, rank)
+		if in_orbit:
+			orb.set_meta("aux_orbit", true)
 		add_child(orb)
 		spawned_spell = orb
 		orb.add_to_group("vfx_poison_ball")
@@ -352,7 +399,10 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var fireball = FIREBALL_SCRIPT.new()
-		fireball.configure(origin, shot_aim, density, rank, motion)
+		fireball.configure(origin, shot_aim, density, rank, 1 if in_orbit else motion)
+		if in_orbit:
+			fireball.aux_orbit = true
+			fireball.aux_orbit_phase = (shot_aim - origin).angle()
 		add_child(fireball)
 		spawned_spell = fireball
 		fireball.add_to_group("vfx_fireball")
@@ -365,6 +415,9 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			return false
 		var trap = THORN_SCRIPT.new()
 		trap.configure(origin, shot_aim, density, rank)
+		if in_orbit:
+			trap.set_meta("aux_orbit", true)
+			trap.state = "ARMED" # orbit an armed trap instead of rolling
 		add_child(trap)
 		spawned_spell = trap
 		trap.add_to_group("vfx_thorn")
@@ -375,12 +428,21 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		return false
 	if is_echo:
 		spawned_spell.modulate.a = ECHO_PREVIEW_ALPHA
+	if in_orbit and spell_id != 9:
+		var driver = ORBIT_SCRIPT.new()
+		var phase: float = (shot_aim - origin).angle()
+		driver.configure(spawned_spell, origin, rank, _orbit_velocity(spell_id), phase, spell_id)
+		add_child(driver)
 	fired_count += 1
 	var label: String = SPELL_CHOICES[spell_id]
 	if is_echo:
 		label += " [메아리]"
 	if branches > 1:
 		label += " 갈래 %d/%d" % [branch, branches]
+	if in_orbit:
+		label += " [공전]"
+	if bool(context.get("_fall_arrived", false)):
+		label += " [낙하 완료]"
 	var cast_id: int = harness.track(spawned_spell, label)
 	if spell_id == 10:
 		var beam_direction: Vector2 = (shot_aim - origin).normalized()
@@ -388,6 +450,14 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			beam_direction = Vector2.RIGHT
 		harness.check_beam(cast_id, origin, origin + beam_direction * float(LASER_SCRIPT.MAX_RANGE))
 	return true
+
+func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, branch: int, branches: int) -> void:
+	var landed_context := context.duplicate(true)
+	landed_context["_fall_arrived"] = true
+	# Non-orbit attacks start just above the impact point, rather than flying
+	# across the entire arena again after descent.
+	landed_context["origin"] = landing if bool(context["orbit"]) else landing + Vector2(0.0, -65.0)
+	_spawn_single_cast(landed_context, landing, is_echo, branch, branches)
 
 func _on_laser_finished() -> void:
 	laser_finished += 1
@@ -597,6 +667,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
 				particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
 			KEY_C:
+				for preview in get_tree().get_nodes_in_group("vfx_fall_preview"):
+					preview.cancel()
+				for driver in get_tree().get_nodes_in_group("vfx_orbit_driver"):
+					driver.queue_free()
 				pending_echoes.clear()
 				original_casts = 0
 				echo_casts = 0
@@ -680,7 +754,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "마법 선택: 목록 / PgUp·PgDn 이전·다음 (1~0 유지)  |  갈래·메아리 실제 VFX 적용\n클릭·SPACE 발사   R 자동   Q/E 강화   F 이동 방식   T 덫 발동   ↑/↓ 입자   C 기록 초기화"
+	info_label.text = "마법 선택: 목록 / PgUp·PgDn 이전·다음 (1~0 유지)  |  갈래·메아리·낙하·공전 실험\n클릭·SPACE 발사   R 자동   Q/E 강화   F 이동 방식   T 덫 발동   ↑/↓ 입자   C 기록 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
@@ -757,7 +831,7 @@ func _create_support_controls(layer: CanvasLayer) -> void:
 		support_picker_1.add_item(SUPPORT_CHOICES[i], i)
 	support_picker_1.select(0)
 	support_picker_1.item_selected.connect(_on_support_selected.bind(1))
-	support_picker_1.tooltip_text = "갈래·메아리만 실제 작동. 나머지 선택은 준비 중."
+	support_picker_1.tooltip_text = "갈래·메아리·낙하·일부 공격 공전이 작동합니다. 나머지는 준비 중."
 	layer.add_child(support_picker_1)
 
 	var label_2 := Label.new()
@@ -773,7 +847,7 @@ func _create_support_controls(layer: CanvasLayer) -> void:
 		support_picker_2.add_item(SUPPORT_CHOICES[i], i)
 	support_picker_2.select(0)
 	support_picker_2.item_selected.connect(_on_support_selected.bind(2))
-	support_picker_2.tooltip_text = "갈래+메아리 동시 작동. 동일 보조 중복은 허용되지 않습니다."
+	support_picker_2.tooltip_text = "갈래·메아리·낙하·일부 공격 공전. 동일 보조 중복은 금지."
 	layer.add_child(support_picker_2)
 
 func _on_support_selected(index: int, slot: int) -> void:
