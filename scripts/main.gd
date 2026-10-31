@@ -1,5 +1,5 @@
 extends Node2D
-## 별빛탄/꽃폭탄/달빛 부메랑/블랙홀/가시꽃 덫 VFX 독립 실험실. 본게임과 별개다.
+## 별빛탄/꽃폭탄/달빛 부메랑/블랙홀/가시꽃 덫/서리검 VFX 독립 실험실. 본게임과 별개다.
 
 const BOLT_SCRIPT = preload("res://scripts/star_bolt.gd")
 const IMPACT_SCRIPT = preload("res://scripts/impact_burst.gd")
@@ -9,6 +9,7 @@ const MOON_SCRIPT = preload("res://scripts/moon_boomerang.gd")
 const MOON_HIT_SCRIPT = preload("res://scripts/moon_hit_burst.gd")
 const BLACK_HOLE_SCRIPT = preload("res://scripts/vortex_black_hole.gd")
 const THORN_SCRIPT = preload("res://scripts/thorn_trap.gd")
+const ICE_SWORD_SCRIPT = preload("res://scripts/ice_sword_vfx.gd")
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -22,7 +23,7 @@ var fire_clock := 0.2
 var particle_multiplier := 1.0
 var fired_count := 0
 var impact_count := 0
-var selected_spell := 0 # 0 별빛탄 / 1 꽃폭탄 / 2 달빛 부메랑 / 3 블랙홀 / 4 가시꽃 덫
+var selected_spell := 0 # 0 별빛탄 / 1 꽃폭탄 / 2 달빛 부메랑 / 3 블랙홀 / 4 가시꽃 덫 / 5 서리검
 var bloom_rank := 0
 var black_hole_rank := 0
 var black_hole_ticks := 0
@@ -31,6 +32,9 @@ var thorn_rank := 0
 var thorn_deploys := 0
 var thorn_triggers := 0
 var thorn_finished := 0
+var ice_sword_rank := 0
+var ice_sword_swings := 0
+var ice_sword_finished := 0
 
 var title_label: Label
 var info_label: Label
@@ -45,7 +49,7 @@ func _process(delta: float) -> void:
 	if autofire:
 		fire_clock -= delta
 		if fire_clock <= 0.0:
-			fire_clock = 5.2 if selected_spell == 3 else (2.6 if selected_spell == 4 else fire_interval)
+			fire_clock = 5.2 if selected_spell == 3 else (2.6 if selected_spell == 4 else (1.15 if selected_spell == 5 else fire_interval))
 			shoot()
 	var spell_name := _spell_name()
 	if selected_spell == 3:
@@ -68,6 +72,11 @@ func _process(delta: float) -> void:
 			spell_name, thorn_rank, float(THORN_SCRIPT.RADII[thorn_rank]),
 			fired_count, rolling, opening, armed, thorn_triggers, thorn_finished
 		]
+	elif selected_spell == 5:
+		status_label.text = "선택 %s / VFX +%d  |  원호 %.0f도  |  시전 %d  종료 %d  |  좌우 교대  |  파티클 %.1fx  |  자동 %s" % [
+			spell_name, ice_sword_rank, float(ICE_SWORD_SCRIPT.SCATTERS[ice_sword_rank]),
+			ice_sword_swings, ice_sword_finished, particle_multiplier, "ON" if autofire else "OFF"
+		]
 	else:
 		var rank_str := "" if selected_spell != 1 else "  |  꽃폭탄 +%d (폭발 반경 %.0f)" % [bloom_rank, BLOOM_RADII[bloom_rank]]
 		status_label.text = "선택 %s%s  |  발사 %d  명중 %d  |  파티클 %.1fx  |  자동 %s" % [
@@ -76,7 +85,7 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func shoot(replace_hole: bool = false) -> void:
-	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size()
+	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size()
 	if active_count >= 50:
 		return
 	if selected_spell == 0:
@@ -114,6 +123,14 @@ func shoot(replace_hole: bool = false) -> void:
 		hole.add_to_group("vfx_hole")
 		hole.pulsed.connect(_on_black_hole_pulse)
 		hole.vanished.connect(_on_black_hole_vanished)
+	elif selected_spell == 5:
+		# Pure animation preview: no enemy, status effects, hitbox or spell combat.
+		var sword = ICE_SWORD_SCRIPT.new()
+		sword.configure(START_POINT, target_point, particle_multiplier, ice_sword_rank, ice_sword_swings)
+		add_child(sword)
+		sword.add_to_group("vfx_ice_sword")
+		sword.finished.connect(_on_ice_sword_finished)
+		ice_sword_swings += 1
 	else:
 		# Unlike the black-hole preview, multiple deployed thorn traps are allowed.
 		if get_tree().get_nodes_in_group("vfx_thorn").size() >= 12:
@@ -160,6 +177,9 @@ func _on_black_hole_pulse(_point: Vector2, _radius: float) -> void:
 func _on_black_hole_vanished(_point: Vector2) -> void:
 	black_hole_finished += 1
 
+func _on_ice_sword_finished(_point: Vector2) -> void:
+	ice_sword_finished += 1
+
 func _on_thorn_deployed(_point: Vector2, _radius: float) -> void:
 	thorn_deploys += 1
 
@@ -194,6 +214,7 @@ func _spell_name() -> String:
 		2: return "달빛 부메랑"
 		3: return "소용돌이 씨앗(블랙홀)"
 		4: return "가시꽃 덫"
+		5: return "서리검"
 	return "미지의 마법"
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -221,6 +242,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_5, KEY_KP_5:
 				selected_spell = 4
 				_update_title()
+			KEY_6, KEY_KP_6:
+				selected_spell = 5
+				_update_title()
 			KEY_Q:
 				if selected_spell == 3:
 					black_hole_rank = maxi(0, black_hole_rank - 1)
@@ -228,6 +252,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					bloom_rank = maxi(0, bloom_rank - 1)
 				elif selected_spell == 4:
 					thorn_rank = maxi(0, thorn_rank - 1)
+				elif selected_spell == 5:
+					ice_sword_rank = maxi(0, ice_sword_rank - 1)
 			KEY_E:
 				if selected_spell == 3:
 					black_hole_rank = mini(3, black_hole_rank + 1)
@@ -235,6 +261,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					bloom_rank = mini(3, bloom_rank + 1)
 				elif selected_spell == 4:
 					thorn_rank = mini(3, thorn_rank + 1)
+				elif selected_spell == 5:
+					ice_sword_rank = mini(3, ice_sword_rank + 1)
 			KEY_SPACE:
 				shoot(true)
 			KEY_T:
@@ -246,7 +274,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
 				particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
 			KEY_C:
-				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn"]:
+				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword"]:
 					for projectile in get_tree().get_nodes_in_group(group_name):
 						projectile.queue_free()
 				# 이미 생성된 폭발은 자연스럽게 사라진다.
@@ -257,6 +285,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				thorn_deploys = 0
 				thorn_triggers = 0
 				thorn_finished = 0
+				ice_sword_swings = 0
+				ice_sword_finished = 0
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, SCREEN_SIZE), Color("1b2030"), true)
@@ -265,7 +295,7 @@ func _draw() -> void:
 	for y in range(140, 901, 80):
 		draw_line(Vector2(0, y), Vector2(1600, y), Color(0.62, 0.70, 0.9, 0.065), 1.0)
 
-	var aiming_color := Color("ffd98e") if selected_spell == 0 else (Color("f4a6c4") if selected_spell == 1 else (Color("c6b7ff") if selected_spell == 2 else (Color("a38cff") if selected_spell == 3 else Color("ecadd2"))))
+	var aiming_color := Color("ffd98e") if selected_spell == 0 else (Color("f4a6c4") if selected_spell == 1 else (Color("c6b7ff") if selected_spell == 2 else (Color("a38cff") if selected_spell == 3 else (Color("ecadd2") if selected_spell == 4 else Color("8ceaff")))))
 	draw_line(START_POINT, target_point, Color(aiming_color, 0.09), 2.0)
 	draw_circle(START_POINT + Vector2(0, 22), 35.0, Color(0, 0, 0, 0.24))
 	draw_circle(START_POINT, 32.0, Color("6d658b"))
@@ -282,7 +312,7 @@ func _draw() -> void:
 		if selected_spell == 1:
 			draw_arc(target_point, BLOOM_RADII[bloom_rank], 0.0, TAU, 64, Color(1.0, 0.65, 0.75, 0.28), 1.5, true)
 	else:
-		# 블랙홀과 가시꽃 덫 위로 분홍색 표적 모형을 그리지 않는다.
+		# 블랙홀/가시꽃/서리검에는 분홍색 표적 모형을 그리지 않는다.
 		draw_arc(target_point, 8.0, 0.0, TAU, 24, Color(0.58, 0.80, 0.77, 0.28), 1.5, true)
 
 func _create_hud() -> void:
@@ -302,7 +332,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "1 별빛탄 / 2 꽃폭탄 / 3 달빛 부메랑 / 4 블랙홀 / 5 가시꽃 덫  |  Q/E 강화  |  T 덫 발동  |  클릭·SPACE 발사  |  R 자동  |  ↑/↓ 입자  |  C 초기화"
+	info_label.text = "1 별빛탄 / 2 꽃폭탄 / 3 달빛 부메랑 / 4 블랙홀 / 5 가시꽃 덫 / 6 서리검  |  Q/E VFX 비교  |  T 덫 발동  |  클릭·SPACE 발사  |  R 자동  |  ↑/↓ 입자  |  C 초기화"
 	info_label.position = Vector2(36, 66)
 	info_label.add_theme_font_size_override("font_size", 17)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
