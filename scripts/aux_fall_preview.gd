@@ -1,22 +1,35 @@
 extends Node2D
-## Stage-2 falling movement preview. It emits a single arrival signal at landing.
-## The original attack VFX is instantiated only AFTER the visual descent.
+## Magicraft 3119-inspired falling: the ACTUAL source VFX travels diagonally.
+## Separate telegraph only for non-projectile spells (laser, lightning, sword).
 signal arrived()
 
-const WARNING_SECONDS := 0.40
-const DESCENT_SECONDS := 0.48
-const DESCENT_HEIGHT := 340.0
+const WARNING_SECONDS := 0.28
+const DESCENT_SECONDS := 0.50
+const HORIZONTAL_BACK := 112.0
+const VERTICAL_HEIGHT := 350.0
 
 var landing := Vector2.ZERO
+var starting := Vector2.ZERO
+var actor: Node2D
 var age := 0.0
 var cancelled := false
 
-func configure(landing_at: Vector2) -> void:
-	landing = landing_at
+func configure(target: Vector2, projectile: Node2D = null, cast_origin: Vector2 = Vector2.ZERO) -> void:
+	landing = target
+	actor = projectile
+	var forward: Vector2 = target - cast_origin
+	if forward.length_squared() < 0.001:
+		forward = Vector2.RIGHT
+	starting = target - forward.normalized() * HORIZONTAL_BACK + Vector2(0, -VERTICAL_HEIGHT)
 
 func _ready() -> void:
 	add_to_group("vfx_fall_preview")
+	process_priority = 100
 	z_index = 4
+	if is_instance_valid(actor):
+		actor.set_process(false)
+		actor.visible = false # telegraph precedes the actual spell sprite
+		actor.global_position = starting
 	queue_redraw()
 
 func cancel() -> void:
@@ -26,10 +39,23 @@ func cancel() -> void:
 func _process(delta: float) -> void:
 	if cancelled:
 		return
+	if actor != null and (not is_instance_valid(actor) or actor.is_queued_for_deletion()):
+		cancel()
+		return
 	age += maxf(delta, 0.0)
+	if age >= WARNING_SECONDS and is_instance_valid(actor):
+		actor.visible = true
+		var p := clampf((age - WARNING_SECONDS) / DESCENT_SECONDS, 0.0, 1.0)
+		# Reference fall: start behind the target and at an elevated Z, keep
+		# projectile's own sprite visible while XY + projected height descend.
+		actor.global_position = starting.lerp(landing, p)
 	if age >= WARNING_SECONDS + DESCENT_SECONDS:
 		cancelled = true
+		if is_instance_valid(actor):
+			actor.global_position = landing
 		arrived.emit()
+		if is_instance_valid(actor):
+			actor.set_process(true)
 		queue_free()
 		return
 	queue_redraw()
@@ -37,14 +63,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if cancelled:
 		return
-	var ring := 1.0 - clampf(age / (WARNING_SECONDS + DESCENT_SECONDS), 0.0, 1.0)
-	draw_arc(landing, 32.0 + 13.0 * ring, 0.0, TAU, 48, Color(0.89, 0.76, 1.0, 0.68 * (0.5 + ring * 0.5)), 2.2, true)
-	draw_line(landing + Vector2(-13.0, 0.0), landing + Vector2(13.0, 0.0), Color(0.80, 0.75, 1.0, 0.38), 1.0)
-	if age < WARNING_SECONDS:
-		return
-	var t := clampf((age - WARNING_SECONDS) / DESCENT_SECONDS, 0.0, 1.0)
-	var p := landing + Vector2(0.0, -DESCENT_HEIGHT * (1.0 - t * t))
-	draw_line(p + Vector2(0, -51), p + Vector2(0, 15), Color(0.70, 0.86, 1.0, 0.18 + t * 0.37), 8.0, true)
-	draw_circle(p, 16.0 + 5.0 * t, Color(0.34, 0.68, 1.0, 0.13))
-	draw_circle(p, 10.0, Color(0.78, 0.84, 1.0, 0.84))
-	draw_circle(p, 4.0, Color.WHITE)
+	var progress := clampf(age / (WARNING_SECONDS + DESCENT_SECONDS), 0.0, 1.0)
+	var tint := Color(0.74, 0.76, 1.0, (0.58 - progress * 0.28))
+	draw_arc(landing, 38.0 - progress * 13.0, 0.0, TAU, 48, tint, 1.8, true)
+	draw_line(landing - Vector2(10, 0), landing + Vector2(10, 0), Color(tint, tint.a * 0.55), 1.0)
