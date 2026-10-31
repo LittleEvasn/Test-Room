@@ -8,6 +8,7 @@ signal impacted(at: Vector2)
 signal finished()
 
 const FRAGMENT_TEXTURE = preload("res://scripts/fireflies_flame_fragment.gd")
+const ORBIT_MOTION = preload("res://scripts/aux_orbit_motion.gd")
 const RADII := [50.0, 65.0, 80.0, 100.0]
 const PREVIEW_SPEED := 590.0
 const MAX_STRAIGHT_LIFE := 2.45
@@ -18,6 +19,8 @@ var to_point := Vector2.ZERO
 var density := 1.0
 var rank := 0
 var motion := 0 # 0 straight, 1 orbit, 2 curving
+var aux_orbit := false
+var aux_orbit_phase := 0.0
 var age := 0.0
 var dying := false
 var linger := 0.0
@@ -46,7 +49,7 @@ func _ready() -> void:
     ]
     distance = from_point.distance_to(to_point)
     if motion == 1:
-        position = from_point + Vector2(134.0 + float(rank) * 10.0, 0.0)
+        position = ORBIT_MOTION.orbit_point(from_point, rank, PREVIEW_SPEED, 0.0, aux_orbit_phase) if aux_orbit else from_point + Vector2(134.0 + float(rank) * 10.0, 0.0)
     else:
         position = from_point
     last_world = global_position
@@ -68,7 +71,7 @@ func _process(delta: float) -> void:
         1:
             var theta := age * 2.65
             var radius := 134.0 + float(rank) * 10.0
-            position = from_point + Vector2(cos(theta), sin(theta)) * radius
+            position = ORBIT_MOTION.orbit_point(from_point, rank, PREVIEW_SPEED, age, aux_orbit_phase) if aux_orbit else from_point + Vector2(cos(theta), sin(theta)) * radius
         2:
             var direction := (to_point - from_point).normalized()
             if direction.length_squared() < 0.001:
