@@ -159,10 +159,15 @@ func _process(delta: float) -> void:
 			spell_name, rank_str, fired_count, impact_count, particle_multiplier, "ON" if autofire else "OFF"
 		]
 	if effect_label != null:
-		effect_label.text = "갈래 %s / 메아리 %s | 원본 %d  재시전 %d  대기 %d  발사 제한 %d" % [
+		var pending: Array[String] = []
+		for chosen in [support_1, support_2]:
+			if chosen != 0 and chosen != FAN_INDEX and chosen != ECHO_INDEX:
+				pending.append(SUPPORT_CHOICES[chosen])
+		var note := " | 미구현: " + ", ".join(pending) if not pending.is_empty() else ""
+		effect_label.text = "갈래 %s / 메아리 %s | 원본 %d  재시전 %d  대기 %d  발사 제한 %d%s" % [
 			"3발" if _has_support(FAN_INDEX) else "OFF",
 			"0.18초" if _has_support(ECHO_INDEX) else "OFF",
-			original_casts, echo_casts, pending_echoes.size(), blocked_spawns
+			original_casts, echo_casts, pending_echoes.size(), blocked_spawns, note
 		]
 	queue_redraw()
 
@@ -251,6 +256,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	var spawned_spell: Node2D = null
 	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
+		blocked_spawns += 1
 		return false
 	if spell_id == 0:
 		var bolt = BOLT_SCRIPT.new()
@@ -316,6 +322,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	elif spell_id == 7:
 		# VFX-only: a simple bouncing poison circle leaves one ground puddle per landing.
 		if get_tree().get_nodes_in_group("vfx_poison_ball").size() >= (6 if bool(context["fan"]) or bool(context["echo"]) else 5):
+			blocked_spawns += 1
 			return false
 		var orb = POISON_BALL_SCRIPT.new()
 		orb.configure(origin, shot_aim, density, rank)
@@ -342,6 +349,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		ray.finished.connect(_on_laser_finished)
 	elif spell_id == 9:
 		if get_tree().get_nodes_in_group("vfx_fireball").size() >= 6:
+			blocked_spawns += 1
 			return false
 		var fireball = FIREBALL_SCRIPT.new()
 		fireball.configure(origin, shot_aim, density, rank, motion)
@@ -353,6 +361,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	else:
 		# Unlike the black-hole preview, multiple deployed thorn traps are allowed.
 		if get_tree().get_nodes_in_group("vfx_thorn").size() >= 12:
+			blocked_spawns += 1
 			return false
 		var trap = THORN_SCRIPT.new()
 		trap.configure(origin, shot_aim, density, rank)
