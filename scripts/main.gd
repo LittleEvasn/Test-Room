@@ -501,14 +501,14 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 	visual.global_position = landing
 	match kind:
 		0:
-			visual.destination = landing
+			visual.set("destination", landing)
 		1:
-			visual.destination = landing
+			visual.set("destination", landing)
 		2:
-			visual.configure(landing, landing + Vector2.RIGHT * 25.0, density)
+			visual.call("configure", landing, landing + Vector2.RIGHT * 25.0, density)
 		3:
-			visual.spawn_pos = landing
-			visual.drift = Vector2.ZERO
+			visual.set("spawn_pos", landing)
+			visual.set("drift", Vector2.ZERO)
 		4:
 			var throw_target := landing
 			if bool(context["orbit"]):
@@ -516,15 +516,15 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 				if radial.length_squared() < 0.001:
 					radial = Vector2.RIGHT
 				throw_target = landing + radial.orthogonal() * 250.0
-			visual.configure(landing, throw_target, density, level)
+			visual.call("configure", landing, throw_target, density, level)
 		7:
-			visual.configure(landing, landing, density, level)
+			visual.call("configure", landing, landing, density, level)
 		9:
-			visual.from_point = landing
-			visual.to_point = landing
-			visual.age = 0.0
-			visual.distance = 0.0
-			visual.last_world = landing
+			visual.set("from_point", landing)
+			visual.set("to_point", landing)
+			visual.set("age", 0.0)
+			visual.set("distance", 0.0)
+			visual.set("last_world", landing)
 	if bool(context["orbit"]) and kind in [0, 1, 2, 3, 7]:
 		var driver = ORBIT_SCRIPT.new()
 		var direction: Vector2 = landing - Vector2(context["origin"])
