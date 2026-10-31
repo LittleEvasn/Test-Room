@@ -108,6 +108,13 @@ func trigger_trap() -> bool:
 
 func _process(delta: float) -> void:
 	_update_dust(delta)
+	if has_meta("aux_falling"):
+		# Keep seed tumbling in mid-air, but suppress rolling/impact states.
+		seed_angle += rotation_velocity * delta
+		seed_height = 0.0
+		ground_pos = global_position
+		queue_redraw()
+		return
 	if state == ROLLING:
 		_roll(delta)
 	elif state == DEPLOYING:
