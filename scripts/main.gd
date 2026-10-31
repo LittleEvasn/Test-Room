@@ -292,6 +292,14 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 	var motion: int = int(context["motion"])
 	var replace_hole: bool = bool(context["replace_hole"]) and not is_echo
 	var in_orbit: bool = bool(context.get("orbit", false))
+	var cast_aim: Vector2 = shot_aim
+	if in_orbit:
+		var heading: Vector2 = shot_aim - origin
+		if heading.length_squared() < 0.001:
+			heading = Vector2.RIGHT
+		# Native projectile arrival checks need a distant virtual endpoint;
+		# only the orbit driver sets the actual visible world position.
+		cast_aim = origin + heading.normalized() * 1200.0
 	var spawned_spell: Node2D = null
 	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
@@ -299,7 +307,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		return false
 	if spell_id == 0:
 		var bolt = BOLT_SCRIPT.new()
-		bolt.configure(origin, shot_aim, density)
+		bolt.configure(origin, cast_aim, density)
 		if in_orbit:
 			bolt.set_meta("aux_orbit", true)
 		add_child(bolt)
@@ -308,7 +316,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		bolt.impacted.connect(_on_bolt_impact.bind(is_echo))
 	elif spell_id == 1:
 		var bomb = BLOOM_SCRIPT.new()
-		bomb.configure(origin, shot_aim, density, BLOOM_RADII[rank])
+		bomb.configure(origin, cast_aim, density, BLOOM_RADII[rank])
 		if in_orbit:
 			bomb.set_meta("aux_orbit", true)
 		add_child(bomb)
@@ -317,7 +325,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 		bomb.impacted.connect(_on_bloom_impact.bind(rank, density, is_echo))
 	elif spell_id == 2:
 		var moon = MOON_SCRIPT.new()
-		moon.configure(origin, shot_aim, density)
+		moon.configure(origin, cast_aim, density)
 		if in_orbit:
 			moon.set_meta("aux_orbit", true)
 		add_child(moon)
@@ -372,7 +380,7 @@ func _spawn_single_cast(context: Dictionary, shot_aim: Vector2, is_echo: bool, b
 			blocked_spawns += 1
 			return false
 		var orb = POISON_BALL_SCRIPT.new()
-		orb.configure(origin, shot_aim, density, rank)
+		orb.configure(origin, cast_aim, density, rank)
 		if in_orbit:
 			orb.set_meta("aux_orbit", true)
 		add_child(orb)
