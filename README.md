@@ -414,3 +414,38 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 
 검증용 헤드리스 스크립트: `tests/stage2_fall_orbit_test.gd` — 11개 낙하/7개 공전/미지원 광선/낙하+공전/메아리+낙하 검사. **Godot 4.6 실제 실행·컴파일과 GL Compatibility 화면 검증은 아직 수행하지 않았다.** 실행: `godot --headless --path . --script res://tests/stage2_fall_orbit_test.gd`.
 
+
+
+## 2단계 수정 — 마법공예 낙하 원본 참고 및 공전 예외 5종 (2026-11-01)
+
+**이 단락이 위의 '2단계 — 낙하 + 공전' 초판 설명보다 우선한다.** 기존 '7종 원형 공전/공통 낙하 광체' 서술은 개편 전의 기록이다.
+
+### 실제 참고한 원본 역공학 코드/보고서
+
+- [SpellTools.cs / SpellInitialFallData](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/SpellTools.cs) 및 [坠落逆向分析.md](https://github.com/kav1982/_reverse_engineering/blob/main/%E5%9D%A0%E8%90%BD%E9%80%86%E5%90%91%E5%88%86%E6%9E%90.md): 목표점에서 탄의 방향 반대로 **2 단위** 물리고 수직 높이 **-7**에서 시작. 실제 탄체의 수평 이동과 일정 하강 속도를 함께 수행하고, 지면에 닿을 때 공격한다. 중력은 첫 낙하가 아닌 반발 과정에 사용.
+- [SpellMoveJob.cs / Normal_Rotation](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/SpellMoveJob.cs): 궤도 이동 각속도는 **투사체 이동 속도 / 반경**에 비례. 공전 강화로 속도/반경 변화 시 회전 속도도 바뀌어야 한다. 이 파일의 Boomerang_Rotation 등은 별도 고유 움직임도 정의한다.
+- [Spell1004LaserJob.cs](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/Spell1004LaserJob.cs) 및 [激光逆向分析.md](https://github.com/kav1982/_reverse_engineering/blob/main/%E6%BF%80%E5%85%89%E9%80%86%E5%90%91%E5%88%86%E6%9E%90.md): 공전 광선은 **36선분 × 10°의 고정 360° 원형 경로**를 한 번에 생성한다. 직선 빔을 회전시키는 방식이 아니다.
+- 원본 Unity 3D의 **2 대 7 거리 비율**을 Godot 2D 화면에서 **수평 뒤쪽 112px / 상공 350px**의 투영으로 환산했다. 전환 시간은 VFX 시험용 0.28초 예고 + 0.50초 하강으로 임시 설정했다. **이 픽셀 수치는 원작의 정확한 화면 측정값이 아니다.**
+
+### 낙하 — 흰 광체 대체를 제거
+
+- 별빛탄·꽃폭탄·달빛 부메랑·블랙홀·가시꽃 덫·독 탱탱볼·화염구에서는 **원래 공격의 Node2D/스프라이트를 그 상태로 비스듬히 하강**시킨다. 착지 전에 원래 직선 이동/폭발 처리는 일시정지한다. 착지 시 같은 개체의 공격 VFX 처리를 다시 연다. **하강용 가짜 흰 구체가 원래 탄으로 변하지 않는다.**
+- 얼음검·벼락·번개 아크·광선은 움직이는 별도 탄체가 없는 특수 공격이라 **착지 지점 예고 표시 후 기존 공격을 발동**한다. 이 경우 완성된 '원래 무기 자체의 낙하 애니메이션'은 아직 아니다. 단, 예전 흰 구체가 내려오는 임시 연출은 그리지 않는다.
+- 낙하+메아리·낙하+갈래·낙하+공전의 기존 발사 예약 규칙은 유지한다. `C` 초기화는 미착지 하강도 취소한다.
+
+### 공전 — 동일 원형 경로 일괄 적용 폐기
+
+| 마법 | 현재 동작 |
+| --- | --- |
+| 별빛탄·꽃폭탄·달빛 부메랑·블랙홀 | 실제 공격체가 중심 주위 궤도를 따라 회전 |
+| 가시꽃 덫 | **접선 방향으로 투사** → 평소처럼 감속·설치 → **설치 후 고정** |
+| 얼음검 | 시전자 주변을 도는 검, **손잡이는 안쪽/칼날은 바깥쪽** |
+| 벼락 | 기존 낙뢰 애니메이션 유지. **매 시전마다 낙하 목표 위치가 플레이어 주변 원을 따라 이동** |
+| 독 탱탱볼 | 공전 경로 + **바운스 시간/높이 감쇠, 압축·신장, 추가 점프 및 회전 속도 변화**. 시험용 바운스 단계 |
+| 화염구 | 기존 Fireflies 입자 세계좌표를 유지하며 공통 속도/반경 함수로 회전 |
+| 광선 | 《마법공예》처럼 **순간 360° 원형 광선**(36개 선분), 직선 광선 회전 금지 |
+| 번개 아크 | 별도 공전 모드 미지원 |
+
+- 코드: `scripts/aux_fall_preview.gd`, `scripts/aux_orbit_motion.gd`, `scripts/main.gd`, `scripts/instant_laser_vfx.gd`, `scripts/ice_sword_vfx.gd`, `scripts/poison_bounce_ball.gd`, `scripts/vfx_test_harness.gd`.
+- Test-Room은 여전히 **시각/생명주기 실험실**로, 피해·충돌·명중·스킬 연동은 제공하지 않는다. 광선의 36개 구간에 대한 시험용 표적 겹침 판정은 실제 적 명중이 아니다.
+- 회귀 테스트: `tests/stage1_fan_echo_test.gd` 및 `tests/stage2_fall_orbit_test.gd`. **이 커밋에서는 파일/구조 점검만 가능했고, Godot 엔진 헤드리스 컴파일 및 실제 화면 테스트는 완료하지 못했다.**
