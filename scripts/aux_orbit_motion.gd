@@ -7,6 +7,8 @@ const RANK_RADIUS_STEP := 10.0
 const MIN_ANGULAR_SPEED := 1.25
 const MAX_ANGULAR_SPEED := 5.25
 const PUDDLE_STEP := 0.85
+const POISON_RADII := [24.0, 30.0, 36.0, 42.0]
+const POISON_LIFETIMES := [1.8, 2.2, 2.6, 3.0]
 
 var visual: Node2D
 var center := Vector2.ZERO
@@ -51,17 +53,17 @@ func _process(delta: float) -> void:
 	age += maxf(0.0, delta)
 	visual.global_position = orbit_point(center, rank, speed, age, phase)
 	# Preserve the original VFX animation but avoid its normal straight-line expiry.
-	if spell_id == 1 and visual.elapsed >= 1.8:
-		visual.elapsed = 1.5
+	if spell_id == 1 and float(visual.get("elapsed")) >= 1.8:
+		visual.set("elapsed", 1.5)
 	if spell_id == 7:
 		puddle_clock += delta
 		if puddle_clock >= PUDDLE_STEP:
 			puddle_clock -= PUDDLE_STEP
-			visual.landed.emit(visual.global_position, float(visual.RADII[rank]), float(visual.LIFETIMES[rank]))
+			visual.emit_signal("landed", visual.global_position, float(POISON_RADII[rank]), float(POISON_LIFETIMES[rank]))
 	if age >= LIFE_SECONDS:
 		# Match a bomb's VFX-only finish to its current orbital location.
 		if spell_id == 1:
-			visual.impacted.emit(visual.global_position, float(visual.blast_radius))
+			visual.emit_signal("impacted", visual.global_position, float(visual.get("blast_radius")))
 		visual.queue_free()
 		queue_free()
 	queue_redraw()
