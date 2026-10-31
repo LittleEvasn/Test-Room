@@ -6,13 +6,18 @@ extends Node2D
 signal finished(at: Vector2)
 
 const SWORD_TEXTURE: Texture2D = preload("res://assets/얼음칼.png")
-const SWORD_PIVOT := Vector2(256.0, 105.0) # handle-side rotation point in 512x512 art
-const TIP_FROM_PIVOT := 385.0
+# PNG: pommel/hilt END is at the top around (256,20).
+# Crossguard is near y=135; the BLADE begins below it and ends near y=490.
+# Rotate around the pommel, not the crossguard.
+const SWORD_PIVOT := Vector2(256.0, 20.0)
+const BLADE_START_FROM_PIVOT := 138.0
+const TIP_FROM_PIVOT := 470.0
 const BEFORE_TIME := 0.20
 const AFTER_TIME := 0.25
-const TRAIL_TIME := 0.19
-const MAX_TRAIL := 28
-const MAX_ICE_DUST := 84
+# A continuous time-sampled ring ribbon removes gaps from per-frame quads.
+const TRAIL_TIME := 0.17
+const MAX_TRAIL_SAMPLES := 96
+const MAX_ICE_DUST := 52
 
 # These are VFX-preview levels, NOT the main game's approved spell balance.
 # 150/180/240 are the reference's three native scatter angles.
@@ -32,7 +37,6 @@ var age: float = 0.0
 var phase: String = "BEFORE"
 var last_emission_angle: float = 0.0
 var emitted_exit: bool = false
-var history: Array[Dictionary] = []
 var ice_dust: Array[Dictionary] = []
 
 func configure(from_point: Vector2, to_point: Vector2, density: float, preview_rank: int, swing_number: int) -> void:
@@ -55,7 +59,6 @@ func configure(from_point: Vector2, to_point: Vector2, density: float, preview_r
     age = 0.0
     emitted_exit = false
     phase = "BEFORE"
-    history.clear()
     ice_dust.clear()
 
 func _magicraft_curve(percent: float) -> float:
@@ -68,16 +71,17 @@ func _scale() -> float:
     return float(SIZES[rank])
 
 func _blade_point(angle: float, fraction: float) -> Vector2:
-    return Vector2.RIGHT.rotated(angle) * (TIP_FROM_PIVOT * _scale() * fraction)
+    var radius: float = lerpf(BLADE_START_FROM_PIVOT, TIP_FROM_PIVOT, fraction)
+    return Vector2.RIGHT.rotated(angle) * radius * _scale()
+
+func _angle_at(sample_time: float) -> float:
+    var fraction: float = _magicraft_curve(sample_time / slash_time)
+    return first_angle + deg_to_rad(float(SCATTERS[rank])) * fraction * slash_sign
 
 func _process(delta: float) -> void:
     var dt: float = minf(delta, 0.10)
     age += dt
     _advance_dust(dt)
-    for i in range(history.size() - 1, -1, -1):
-        history[i]["age"] = float(history[i]["age"]) + dt
-        if float(history[i]["age"]) >= TRAIL_TIME:
-            history.remove_at(i)
 
     var stroke_end: float = slash_time * 0.80
     if age < BEFORE_TIME:
@@ -94,44 +98,44 @@ func _process(delta: float) -> void:
         queue_free()
         return
 
-    var previous_angle: float = present_angle
-    var progress: float = _magicraft_curve(age / slash_time)
-    present_angle = first_angle + deg_to_rad(float(SCATTERS[rank])) * progress * slash_sign
+    # Keep the original Magicraft cubic swing progression, but do not let
+    # the fade-out create extra invisible/blurry rotations past stroke_end.
+    present_angle = _angle_at(minf(age, stroke_end))
 
-    # Source traces the blade's rotating angle, rather than a fixed arc picture.
-    if absf(present_angle - previous_angle) > 0.001 and phase != "AFTER":
-        history.append({"angle": present_angle, "age": 0.0})
-        if history.size() > MAX_TRAIL:
-            history.remove_at(0)
-
+    # Emit a few directional flakes evenly along the ANGLE passed, instead
+    # of a random burst at only one possibly skipped animation frame.
     if particle_density > 0.0 and phase != "AFTER":
-        if absf(present_angle - last_emission_angle) >= 0.16:
-            last_emission_angle = present_angle
-            _emit_ice_flakes(present_angle)
+        var angle_delta: float = present_angle - last_emission_angle
+        var count: int = mini(6, int(absf(angle_delta) / 0.23))
+        for i in range(1, count + 1):
+            var emit_angle: float = last_emission_angle + signf(angle_delta) * 0.23 * float(i)
+            _emit_ice_flakes(emit_angle)
+        if count > 0:
+            last_emission_angle += signf(angle_delta) * 0.23 * float(count)
     queue_redraw()
 
 func _emit_ice_flakes(angle: float) -> void:
-    var count: int = int(round(1.0 + particle_density))
+    var count: int = mini(3, int(round(particle_density * 0.7)))
     var radial: Vector2 = Vector2.RIGHT.rotated(angle)
     var tangent: Vector2 = radial.rotated(slash_sign * PI * 0.5)
     for i in range(count):
         if ice_dust.size() >= MAX_ICE_DUST:
             break
-        var along: float = randf_range(0.53, 1.0)
+        var along: float = randf_range(0.62, 0.98)
         ice_dust.append({
             "position": _blade_point(angle, along),
-            "velocity": tangent * randf_range(35.0, 90.0) + radial * randf_range(-22.0, 28.0),
-            "life": randf_range(0.19, 0.39),
+            "velocity": tangent * randf_range(26.0, 65.0) + radial * randf_range(-18.0, 18.0),
+            "life": randf_range(0.14, 0.31),
             "age": 0.0,
-            "size": randf_range(1.7, 4.5),
+            "size": randf_range(1.2, 3.1),
             "spin": randf_range(0.0, TAU)
         })
 
 func _spray_finish() -> void:
     if particle_density <= 0.0:
         return
-    var center: Vector2 = _blade_point(present_angle, 0.76)
-    var count: int = int(round(5.0 + particle_density * 5.0))
+    var center: Vector2 = _blade_point(present_angle, 0.88)
+    var count: int = int(round(2.0 + particle_density * 2.5))
     for i in range(count):
         if ice_dust.size() >= MAX_ICE_DUST:
             break
@@ -140,9 +144,9 @@ func _spray_finish() -> void:
         ice_dust.append({
             "position": center + Vector2(randf_range(-22.0, 22.0), randf_range(-22.0, 22.0)),
             "velocity": flight,
-            "life": randf_range(0.16, 0.42),
+            "life": randf_range(0.16, 0.32),
             "age": 0.0,
-            "size": randf_range(1.7, 5.5),
+            "size": randf_range(1.4, 3.5),
             "spin": angle
         })
 
@@ -177,25 +181,71 @@ func _draw_sword(angle: float, opacity: float, scale_factor: float = 1.0) -> voi
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_trail() -> void:
-    if history.size() < 2:
+    var end_time: float = minf(age, slash_time * 0.80)
+    var start_time: float = maxf(0.0, end_time - TRAIL_TIME)
+    if end_time <= start_time + 0.0001:
         return
-    # Dynamic crescent following each actual sampled blade angle. No baked cone.
-    var r_inner: float = TIP_FROM_PIVOT * _scale() * 0.57
-    var r_outer: float = TIP_FROM_PIVOT * _scale() * 1.05
-    for i in range(1, history.size()):
-        var prev: Dictionary = history[i - 1]
-        var curr: Dictionary = history[i]
-        var alpha: float = clampf(1.0 - float(curr["age"]) / TRAIL_TIME, 0.0, 1.0)
-        var prev_angle: float = float(prev["angle"])
-        var curr_angle: float = float(curr["angle"])
-        var p0: Vector2 = Vector2.RIGHT.rotated(prev_angle)
-        var p1: Vector2 = Vector2.RIGHT.rotated(curr_angle)
-        var ribbon: PackedVector2Array = PackedVector2Array([
-            p0 * r_inner, p0 * r_outer, p1 * r_outer, p1 * r_inner
-        ])
-        draw_colored_polygon(ribbon, Color(0.32, 0.79, 1.0, 0.15 * alpha))
-        draw_line(p0 * r_outer, p1 * r_outer, Color(0.83, 0.97, 1.0, 0.56 * alpha), 2.1, true)
-        draw_line(p0 * r_inner, p1 * r_inner, Color(0.35, 0.79, 1.0, 0.14 * alpha), 1.2, true)
+
+    # Unlike the old frame-stamped quad strip, every frame recomputes an
+    # entire smooth arc from the EXACT swing curve at uniformly sampled times.
+    # No gaps even when the slash advances more than 15 degrees in one frame.
+    var angular_distance: float = absf(_angle_at(end_time) - _angle_at(start_time))
+    var samples: int = clampi(int(ceilf(angular_distance / deg_to_rad(1.5))), 12, MAX_TRAIL_SAMPLES)
+
+    # Three layers form one coherent frost slash: faint bloom, ice fill,
+    # and a thin uninterrupted antialiased cutting edge near the true tip.
+    _draw_ribbon_layer(start_time, end_time, samples, 0.66, 1.02,
+        Color(0.22, 0.65, 1.0, 0.075), Color(0.52, 0.85, 1.0, 0.02))
+    _draw_ribbon_layer(start_time, end_time, samples, 0.79, 0.985,
+        Color(0.37, 0.84, 1.0, 0.32), Color(0.93, 1.0, 1.0, 0.08))
+
+    var tip_points: PackedVector2Array = PackedVector2Array()
+    var tip_colors: PackedColorArray = PackedColorArray()
+    for i in range(samples + 1):
+        var u: float = float(i) / float(samples)
+        var sample_time: float = lerpf(start_time, end_time, u)
+        var alpha: float = _trail_fade(sample_time)
+        var angle: float = _angle_at(sample_time)
+        tip_points.append(Vector2.RIGHT.rotated(angle) * TIP_FROM_PIVOT * _scale() * 0.99)
+        tip_colors.append(Color(0.90, 0.98, 1.0, 0.63 * alpha))
+    draw_polyline_colors(tip_points, tip_colors, 1.7, true)
+
+
+func _trail_fade(sample_time: float) -> float:
+    # World-time fade, so the entire ribbon vanishes naturally after a swing.
+    var elapsed: float = maxf(0.0, age - sample_time)
+    var freshness: float = 1.0 - smoothstep(0.0, TRAIL_TIME, elapsed)
+    return freshness * freshness
+
+
+func _draw_ribbon_layer(start_time: float, end_time: float, samples: int,
+        inner_ratio: float, outer_ratio: float, inner_color: Color, outer_color: Color) -> void:
+    var inner_points: PackedVector2Array = PackedVector2Array()
+    var outer_points: PackedVector2Array = PackedVector2Array()
+    var inner_colors: PackedColorArray = PackedColorArray()
+    var outer_colors: PackedColorArray = PackedColorArray()
+
+    # One continuous gradient-filled annular strip, not disjoint trapezoids.
+    for i in range(samples + 1):
+        var u: float = float(i) / float(samples)
+        var moment: float = lerpf(start_time, end_time, u)
+        var direction_at: Vector2 = Vector2.RIGHT.rotated(_angle_at(moment))
+        var fade: float = _trail_fade(moment)
+        inner_points.append(direction_at * TIP_FROM_PIVOT * _scale() * inner_ratio)
+        outer_points.append(direction_at * TIP_FROM_PIVOT * _scale() * outer_ratio)
+        inner_colors.append(Color(inner_color.r, inner_color.g, inner_color.b, inner_color.a * fade))
+        outer_colors.append(Color(outer_color.r, outer_color.g, outer_color.b, outer_color.a * fade))
+
+    var points: PackedVector2Array = PackedVector2Array()
+    var colors: PackedColorArray = PackedColorArray()
+    for i in range(samples + 1):
+        points.append(inner_points[i])
+        colors.append(inner_colors[i])
+    for i in range(samples, -1, -1):
+        points.append(outer_points[i])
+        colors.append(outer_colors[i])
+    draw_polygon(points, colors)
+
 
 func _draw_dust() -> void:
     for p in ice_dust:
@@ -217,10 +267,9 @@ func _draw_dust() -> void:
 func _draw() -> void:
     _draw_trail()
     var visible_alpha: float = _visibility()
-    # A restrained, faint blade ghost helps read rapid alternating swings.
-    for j in range(0, history.size(), 5):
-        var past: Dictionary = history[j]
-        var alpha: float = 1.0 - float(past["age"]) / TRAIL_TIME
-        _draw_sword(float(past["angle"]), alpha * 0.11 * visible_alpha)
+    # Tiny motion ghost follows the same curve; avoid multiple ghost swords
+    # that used to look like dots and disconnected blade outlines.
+    if phase == "NORMAL" and age > 0.035:
+        _draw_sword(_angle_at(maxf(0.0, age - 0.035)), visible_alpha * 0.10)
     _draw_sword(present_angle, visible_alpha)
     _draw_dust()
