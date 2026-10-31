@@ -75,6 +75,12 @@ func _ready() -> void:
     queue_redraw()
 
 func _process(delta: float) -> void:
+    if has_meta("aux_orbit"):
+        # The shared driver changes world position and emits sample landings.
+        # Do not also execute the straight-line bounce path or spawn puddles there.
+        height = 24.0 * absf(sin(Time.get_ticks_msec() * 0.009))
+        queue_redraw()
+        return
     hop_clock += maxf(delta, 0.0)
 
     # Use remaining time, not frame count, so a dropped frame misses no puddle.
