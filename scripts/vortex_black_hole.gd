@@ -1,5 +1,5 @@
 extends Node2D
-## Black hole VFX v4: mature purple disk from birth, faster inner spin and asymmetric silhouette.
+## Black hole VFX v5: smaller black core; preserve the mature purple disk and fast inner spin.
 ## This standalone preview does not change gameplay damage, pull or fusion behavior.
 
 signal pulsed(at: Vector2, radius: float)
@@ -131,7 +131,7 @@ func _advance_motes(delta: float) -> void:
         var distance := toward_center.length()
 
         mote["life"] = float(mote["life"]) - delta
-        if float(mote["life"]) <= 0.0 or distance <= _radius() * 0.42:
+        if float(mote["life"]) <= 0.0 or distance <= _radius() * 0.21:
             motes.remove_at(i)
             continue
 
