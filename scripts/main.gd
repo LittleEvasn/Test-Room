@@ -510,13 +510,18 @@ func _on_actual_fall_arrived(context: Dictionary, visual: Node2D, landing: Vecto
 			visual.set("spawn_pos", landing)
 			visual.set("drift", Vector2.ZERO)
 		4:
-			var throw_target := landing
 			if bool(context["orbit"]):
+				# Tangential throw is retained only for the orbit exception.
 				var radial := (landing - Vector2(context["origin"])).normalized()
 				if radial.length_squared() < 0.001:
 					radial = Vector2.RIGHT
-				throw_target = landing + radial.orthogonal() * 250.0
-			visual.call("configure", landing, throw_target, density, level)
+				visual.call("configure", landing, landing + radial.orthogonal() * 250.0, density, level)
+			else:
+				# A falling mine should open at impact, not restart a ground roll.
+				visual.set("ground_pos", landing)
+				visual.set("state", "DEPLOYING")
+				visual.set("state_time", 0.0)
+				visual.set("seed_height", 0.0)
 		7:
 			visual.call("configure", landing, landing, density, level)
 		9:
