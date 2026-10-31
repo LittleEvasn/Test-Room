@@ -545,13 +545,16 @@ func _on_fall_arrived(context: Dictionary, landing: Vector2, is_echo: bool, bran
 	landed_context["_fall_arrived"] = true
 	# Non-orbit attacks start just above the impact point, rather than flying
 	# across the entire arena again after descent.
-	if bool(context["orbit"]):
+	if bool(context["orbit"]) and int(context["spell"]) in [5, 6, 10]:
+		# Special orbit VFX remain attached to the original caster center:
+		# sword hilt, lightning placement, and a full circular laser.
+		landed_context["origin"] = context["origin"]
+		_spawn_single_cast(landed_context, landing, is_echo, branch, branches)
+	elif bool(context["orbit"]):
 		landed_context["origin"] = landing
 		var outward: Vector2 = landing - Vector2(context["origin"])
 		if outward.length_squared() < 0.001:
 			outward = Vector2.RIGHT
-		# Keep a distant internal destination so projectile-specific arrival
-		# checks cannot immediately kill the new orbiting projectile.
 		_spawn_single_cast(landed_context, landing + outward.normalized() * 1200.0, is_echo, branch, branches)
 	else:
 		landed_context["origin"] = landing + Vector2(0.0, -65.0)
