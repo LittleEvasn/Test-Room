@@ -66,6 +66,17 @@ func _process(delta: float) -> void:
             queue_free()
         return
 
+    if has_meta("aux_falling"):
+        # Lifetime, flame swirl and world-space fragments remain LIVE.
+        # Only the normal flight path / early arrival test is suppressed.
+        var now_falling: Vector2 = global_position
+        current_velocity = Vector2(get_meta("aux_fall_direction", Vector2.RIGHT)) * PREVIEW_SPEED
+        if now_falling.distance_to(last_world) > 0.5:
+            _emit_along(last_world, now_falling)
+        last_world = now_falling
+        queue_redraw()
+        return
+
     var previous := global_position
     match motion:
         1:
