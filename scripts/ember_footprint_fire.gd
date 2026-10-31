@@ -46,10 +46,10 @@ static func _flame_mask(size_px: int) -> GradientTexture2D:
     # failsafe even if a display shader is disabled or fails to compile.
     var gradient := Gradient.new()
     gradient.set_color(0, Color.WHITE)
+    gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
     gradient.add_point(0.48, Color(1.0, 1.0, 1.0, 0.98))
     gradient.add_point(0.74, Color(1.0, 1.0, 1.0, 0.66))
     gradient.add_point(0.91, Color(1.0, 1.0, 1.0, 0.14))
-    gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
     var tex := GradientTexture2D.new()
     tex.width = size_px
     tex.height = size_px
@@ -62,8 +62,8 @@ static func _flame_mask(size_px: int) -> GradientTexture2D:
 static func _soft_quad(size_px: int) -> GradientTexture2D:
     var gradient := Gradient.new()
     gradient.set_color(0, Color(1.0, 1.0, 1.0, 0.85))
-    gradient.add_point(0.35, Color(1.0, 1.0, 1.0, 0.45))
     gradient.set_color(1, Color(1.0, 1.0, 1.0, 0.0))
+    gradient.add_point(0.35, Color(1.0, 1.0, 1.0, 0.45))
     var tex := GradientTexture2D.new()
     tex.width = size_px
     tex.height = size_px
