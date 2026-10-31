@@ -35,10 +35,16 @@ func _ready() -> void:
     strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
     strip.position = Vector2(0.0, -STRIP_HEIGHT * 0.5)
     strip.size = Vector2(_bolt_length, STRIP_HEIGHT)
+    # At effectively zero range, draw just a small contact spark instead.
+    strip.visible = _bolt_length >= 8.0
 
     _shader_material = ShaderMaterial.new()
     _shader_material.shader = ARC_SHADER
     _shader_material.set_shader_parameter("phase_offset", randf_range(-40.0, 40.0))
+    # Distance-aware frequency, displacement and glow scale; ONLY slot 9 opts in.
+    _shader_material.set_shader_parameter("arc_length_px", _bolt_length)
+    _shader_material.set_shader_parameter("distance_adaptation", 1.0)
+    _shader_material.set_shader_parameter("body_crawl", 1.0)
     _shader_material.set_shader_parameter("offset_strength", 0.155 + 0.012 * float(_visual_rank))
     _shader_material.set_shader_parameter("core_width", 0.0085 + 0.0014 * float(_visual_rank))
     _shader_material.set_shader_parameter("glow_strength", clampf(0.35 + 0.65 * _glow_multiplier, 0.0, 2.4))
@@ -62,8 +68,15 @@ func _process(delta: float) -> void:
 func _draw() -> void:
     if _visible_amount <= 0.0:
         return
-    # Minimal anchor glints, intentionally no secondary arcs or branching sparks.
+    # No branches. Close-range endpoints share a compact contact flash.
+    if _bolt_length < 24.0:
+        var center := Vector2(_bolt_length * 0.5, 0.0)
+        draw_circle(center, 4.0, Color(0.21, 0.52, 1.0, 0.14 * _visible_amount))
+        draw_circle(center, 1.6, Color(0.91, 0.97, 1.0, 0.80 * _visible_amount))
+        return
+
+    var glint_scale: float = clampf(_bolt_length / 140.0, 0.35, 1.0)
     for endpoint in [Vector2.ZERO, Vector2(_bolt_length, 0.0)]:
-        draw_circle(endpoint, 12.0, Color(0.21, 0.52, 1.0, 0.10 * _visible_amount))
-        draw_circle(endpoint, 4.0, Color(0.64, 0.86, 1.0, 0.30 * _visible_amount))
+        draw_circle(endpoint, 12.0 * glint_scale, Color(0.21, 0.52, 1.0, 0.10 * _visible_amount))
+        draw_circle(endpoint, 4.0 * glint_scale, Color(0.64, 0.86, 1.0, 0.30 * _visible_amount))
         draw_circle(endpoint, 1.6, Color(1.0, 1.0, 1.0, 0.77 * _visible_amount))
