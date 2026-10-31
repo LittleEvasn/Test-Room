@@ -449,3 +449,37 @@ Godot 4.6 / GL Compatibility 독립형 마법 VFX 실험실입니다. **본게�
 - 코드: `scripts/aux_fall_preview.gd`, `scripts/aux_orbit_motion.gd`, `scripts/main.gd`, `scripts/instant_laser_vfx.gd`, `scripts/ice_sword_vfx.gd`, `scripts/poison_bounce_ball.gd`, `scripts/vfx_test_harness.gd`.
 - Test-Room은 여전히 **시각/생명주기 실험실**로, 피해·충돌·명중·스킬 연동은 제공하지 않는다. 광선의 36개 구간에 대한 시험용 표적 겹침 판정은 실제 적 명중이 아니다.
 - 회귀 테스트: `tests/stage1_fan_echo_test.gd` 및 `tests/stage2_fall_orbit_test.gd`. **이 커밋에서는 파일/구조 점검만 가능했고, Godot 엔진 헤드리스 컴파일 및 실제 화면 테스트는 완료하지 못했다.**
+
+
+## 2단계 낙하 긴급 수정 — 원본 VFX 유지 및 광선 낙하 경로 (2026-11-01)
+
+**이 항목이 위의 2단계 낙하 설명 및 최초 수정 설명보다 우선합니다.** 기존 낙하는 `aux_fall_preview.gd`에서 `actor.set_process(false)`를 호출해 애니메이션까지 정지시켰습니다. 블랙홀의 셰이더는 초기 알파 0에서 고정되어 낙하 중 보이지 않았습니다.
+
+### 현재 수정된 구현
+
+- **공통 낙하:** 낙하 드라이버는 실제 공격 개체의 위치만 변경합니다. 개체의 Godot `_process`는 계속 실행되며, 각 마법의 이동/조기 소멸 분기만 `aux_falling` 메타로 우회합니다. 낙하 전용 직선 수평+수직 오프셋은 `112px / 350px`이며, 2D 투영용 값으로 원작의 확정 수치가 아닙니다. 물리형 탄체는 즉시 보이면서 0.58초 동안 떨어지며, 별도의 흰색 대리 탄체를 생성하지 않습니다. 바닥 예고 표시만 드라이버가 그립니다.
+- **별빛탄:** 스파클 생성과 `age` 기반 본체 회전 유지, 원래 직선 도착 판정만 중지. 착지 시 원래 `impacted` VFX 발동.
+- **꽃폭탄:** 파티클 생성/회전 유지. 착지 시 원래 꽃폭탄 반경을 사용해 `impacted` VFX 발동.
+- **달빛 부메랑:** 본체 회전·잔상·파편 갱신, 외향/귀환 타이머 비행만 우회. 착지 시 기존 `struck` 플래시 후 소멸.
+- **블랙홀:** 셰이더 시간·알파·입자는 매 프레임 갱신. 공중 지속 피해 틱은 미발동. 착지 시 *기존 블랙홀 셰이더가 0.4초 동안 붕괴*한 후 소멸. 본게임 실전 피해는 없음. 원작 `Spell1007Job.cs`의 `IsFallSpell` 조기 반환, `Spell1007FallJob.cs`의 착지 일회 공격 구조 참고.
+- **가시꽃 덫:** 씨앗의 회전 속도를 유지하고, 일반 굴림/바운스는 착지 전 차단. 착지 시 같은 개체가 지면에서 전개. 공전+낙하는 낙하 중 공전 방향으로 선회 후 지면에 설치.
+- **독 탱탱볼:** 지면 바운스/장판 생성은 공중에서 중지. 착지할 때 장판 생성, 이후 원래 공중 탄체는 소멸.
+- **화염구:** 기존 Fireflies 스타일 세계좌표 파티클 계속 갱신, 공중 시작 위치에서 첫 궤적을 기록해 발사자와 허공 사이에 긴 가짜 꼬리가 생기지 않게 처리. 착지 후 같은 개체의 `_impact()` 이펙트.
+- **공전+낙하 (물리형):** `aux_fall_preview.gd`가 궤도 위치와 고도 감소를 동시 계산. 착지한 뒤 다시 지면 공전을 시작하지 않음.
+- **광선 1004+낙하:** 탄체 대기·재발사를 없애고 `instant_laser_vfx.gd`가 처음부터 한 프레임에 **공중→지면 광선 경로**를 생성. `공전+낙하`는 10° 간격으로 15개 구간(16점), 높이가 점차 내려가는 궤적을 그립니다. 이것은 Unity 3D 경로를 Godot 2D에 투영한 VFX 근사이며 원본 렌더링의 픽셀 복사가 아닙니다.
+- **광선의 가상 명중 로그:** `낙하 광선`은 선을 통과하는 모든 테스트 표적을 때렸다고 기록하지 않고 지면 착지점에 대한 가상 접촉만 기록합니다. 실제 피해는 여전히 없습니다.
+- **얼음검·벼락·번개 아크:** 독립적인 탄체가 아니므로 이번 수정에서는 목표점 예고 후 해당 VFX 실행 방식을 유지합니다. **마법별 고유 낙하 애니메이션은 추후 작업 대상**입니다.
+
+### 원본 코드 출처 (실제 확인)
+
+- [SpellTools.cs: SpellInitialFallData](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/SpellTools.cs) — 목표 위치 기준 XY -2/Z -7, 속도 비례
+- [SpellMoveJob.cs: Normal_Fall](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/SpellMoveJob.cs) — 수평 이동과 수직 낙하, 착지 판단
+- [Spell1004LaserJob.cs: NormalFallLineGenerate / Rotation+Fall](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/Spell1004LaserJob.cs) — 광선은 별도 광선 경로 생성, 접지점 처리. 기본 직선 낙하는 1개 선분, 회전 낙하는 15개 10° 구간
+- [Spell1011DisintegrationRayJob.cs](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/Spell1011DisintegrationRayJob.cs) — 분해 광선 1011도 낙하 경로를 따로 생성하지만, 1004처럼 단발이 아니라 지속 시전 중 재계산. **1011 구현을 이번 Test-Room에 추가한 것은 아님**
+- [Spell1007Job.cs](https://github.com/kav1982/_reverse_engineering/blob/main/decompiled/Assembly-CSharp/Spell1007Job.cs) — 낙하 중 DPS/견인 중단
+
+### 로컬 테스트
+
+`R` 자동 OFF → `C` 초기화 → 보조 1에 `낙하` → 별빛탄/꽃폭탄/달빛 부메랑/블랙홀/화염구를 각 1회 발사하세요. 파티클·회전·블랙홀 셰이더가 **낙하 내내** 살아 있어야 합니다. 광선+낙하는 Space와 동시에 공중→지면 광선이 나와야 하며, 공전+낙하 광선은 수직 고도 변화가 있는 곡선이어야 합니다.
+
+테스트 스크립트 `tests/stage2_fall_orbit_test.gd` 업데이트. 실행 명령: `godot --headless --path . --script res://tests/stage2_fall_orbit_test.gd`. **GitHub 코드 수정과 정적 검사만 완료. 이 작업 환경에서 Godot 4.6 엔진 실행/실제 렌더 확인은 수행하지 못했습니다.**
