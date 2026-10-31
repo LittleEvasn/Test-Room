@@ -75,6 +75,13 @@ func _ready() -> void:
     queue_redraw()
 
 func _process(delta: float) -> void:
+    if has_meta("aux_falling"):
+        # A single descending body, not a sequence of ground bounces.
+        # Preserve the time-dependent squash-and-stretch drawing.
+        hop_clock += maxf(delta, 0.0)
+        height = 0.0
+        queue_redraw()
+        return
     if has_meta("aux_orbit"):
         # Each real bounce has a shortening flight and its own squash moment.
         # The orbit driver handles XY while this VFX owns its vertical bounce.
