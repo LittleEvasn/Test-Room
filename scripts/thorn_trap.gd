@@ -144,7 +144,7 @@ func _art_scale() -> float:
 func _seed_scale() -> float:
     return 0.54 + float(rank) * 0.055
 
-func _paint_part(texture: Texture2D, angle: float, size: float, alpha: float, shift := Vector2.ZERO) -> void:
+func _paint_part(texture: Texture2D, angle: float, size: float, alpha: float, shift: Vector2 = Vector2.ZERO) -> void:
     draw_set_transform(shift, angle, Vector2.ONE * size)
     draw_texture(texture, -TEX_CENTER, Color(1.0, 1.0, 1.0, clampf(alpha, 0.0, 1.0)))
     draw_set_transform()
@@ -177,7 +177,7 @@ func _draw_opening() -> void:
         draw_arc(Vector2.ZERO, lerpf(12.0, trap_radius(), expansion), 0.0, TAU, 60,
             Color(1.0, 0.73, 0.91, 0.32 * (1.0 - t)), 2.8, true)
 
-func _draw_armed(alpha := 1.0, size_fraction := 1.0) -> void:
+func _draw_armed(alpha: float = 1.0, size_fraction: float = 1.0) -> void:
     draw_set_transform(Vector2(0.0, 7.0), 0.0, Vector2(1.0, 0.33))
     draw_circle(Vector2.ZERO, trap_radius() * 0.9 * size_fraction, Color(0.04, 0.09, 0.06, 0.16 * alpha))
     draw_set_transform()
