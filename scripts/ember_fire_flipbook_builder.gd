@@ -5,6 +5,9 @@ const FRAME_WIDTH := 80
 const FRAME_HEIGHT := 88
 const COLUMNS := 4
 const FRAMES := 12
+const LOBE_CENTERS := [-0.175, -0.02, 0.19]
+const LOBE_WIDTHS := [0.19, 0.245, 0.21]
+const LOBE_HEIGHTS := [0.68, 0.98, 0.78]
 
 static var _cached: ImageTexture
 
@@ -34,9 +37,9 @@ static func get_atlas() -> Texture2D:
                 # Three overlapping tongues share the same BASE, so the result
                 # is a connected sheet of fire, not independent round blobs.
                 for lobe in range(3):
-                    var center := [-0.175, -0.02, 0.19][lobe]
-                    var width := [0.19, 0.245, 0.21][lobe]
-                    var height := [0.68, 0.98, 0.78][lobe]
+                    var center: float = float(LOBE_CENTERS[lobe])
+                    var width: float = float(LOBE_WIDTHS[lobe])
+                    var height: float = float(LOBE_HEIGHTS[lobe])
                     var z := h / height
                     if z > 1.11:
                         continue
@@ -57,7 +60,7 @@ static func get_atlas() -> Texture2D:
                 color = color.lerp(Color(1.0, 0.98, 0.78), hot * 0.88)
                 color.a = alpha
                 var dst_x := (frame % COLUMNS) * FRAME_WIDTH + x
-                var dst_y := (frame / COLUMNS) * FRAME_HEIGHT + y
+                var dst_y: int = (frame / COLUMNS) * FRAME_HEIGHT + y
                 image.set_pixel(dst_x, dst_y, color)
     _cached = ImageTexture.create_from_image(image)
     return _cached
