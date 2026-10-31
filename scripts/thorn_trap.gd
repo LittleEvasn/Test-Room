@@ -33,7 +33,10 @@ const MINE_GRAVITY := 15.0 * MINE_UNIT_PX
 const MINE_INITIAL_UP_SPEED := 4.0 * MINE_UNIT_PX
 const MINE_BOUNCE_RATIO := 0.33
 const MINE_ROTATION_SPEED := 15.0 * PI / 180.0
-const GROUND_DRAG := 3.0
+const GROUND_DRAG := 3.8
+const HORIZONTAL_RETAIN := 0.82
+const MAX_BOUNCES := 1
+const ROLL_STOP_SPEED := 11.0
 const SHADOW_HEIGHT_FACTOR := 0.53
 const LIMBS := 5
 const TEX_CENTER := Vector2(256.0, 256.0)
@@ -54,6 +57,7 @@ var rotation_velocity := 0.0
 var seed_angle := 0.0
 var ground_hits := 0
 var has_touched_ground := false
+var rolling_on_ground := false
 var stopped := false
 var dust: Array[Dictionary] = []
 
@@ -76,6 +80,7 @@ func configure(from_point: Vector2, to_point: Vector2, particle_density: float, 
     ground_hits = 0
     has_touched_ground = false
     stopped = false
+    rolling_on_ground = false
     travel_time = 0.0
     state_time = 0.0
     seed_height = 0.0
@@ -128,7 +133,21 @@ func _roll(delta: float) -> void:
     # tweening all the way to the mouse target and spinning once per 21 pixels.
     var step: float = minf(delta, ROLL_DURATION - travel_time)
     travel_time += step
-    if not stopped:
+    if rolling_on_ground:
+        var drag_factor: float = exp(-GROUND_DRAG * step)
+        var displacement: Vector2 = planar_velocity * (1.0 - drag_factor) / GROUND_DRAG
+        ground_pos += displacement
+        planar_velocity *= drag_factor
+        global_position = ground_pos
+        seed_height = 0.0
+        var signed_roll: float = 1.0 if planar_velocity.x >= 0.0 else -1.0
+        var roll_angular_speed: float = minf(10.0, displacement.length() * 0.8 / 14.0 / maxf(step, 0.001))
+        seed_angle += signed_roll * roll_angular_speed * step
+        if planar_velocity.length() < ROLL_STOP_SPEED:
+            rolling_on_ground = false
+            stopped = true
+            planar_velocity = Vector2.ZERO
+    elif not stopped:
         ground_pos += planar_velocity * step
         global_position = ground_pos
         seed_angle += rotation_velocity * step
@@ -138,24 +157,20 @@ func _roll(delta: float) -> void:
         vertical_speed = falling_speed
         if seed_height <= 0.0:
             seed_height = 0.0
-            if vertical_speed < -42.0 and ground_hits < 2:
+            if vertical_speed < -42.0 and ground_hits < MAX_BOUNCES:
                 # Original reference: movement loses energy at each contact.
                 vertical_speed = -vertical_speed * MINE_BOUNCE_RATIO
-                planar_velocity *= MINE_BOUNCE_RATIO
+                planar_velocity *= HORIZONTAL_RETAIN
                 rotation_velocity *= MINE_BOUNCE_RATIO
                 ground_hits += 1
                 has_touched_ground = true
                 _scatter_dust()
             else:
                 vertical_speed = 0.0
-                planar_velocity = Vector2.ZERO
+                rolling_on_ground = true
                 rotation_velocity = 0.0
-                stopped = true
         elif has_touched_ground:
-            # Friction after the first impact. Airborne launch remains ballistic.
-            var drag: float = exp(-GROUND_DRAG * step)
-            planar_velocity *= drag
-            rotation_velocity *= drag
+            rotation_velocity *= exp(-1.0 * step)
 
     if travel_time >= ROLL_DURATION:
         # Deployment occurs at the physical resting point, never at the cursor.
