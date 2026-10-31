@@ -1,5 +1,5 @@
 extends Node2D
-## 별빛탄/꽃폭탄/달빛 부메랑/블랙홀/가시꽃 덫/서리검/벼락/독 탱탱볼/번개 아크/화염구 VFX 독립 실험실.
+## Clickable VFX spell catalog, dynamic test-mode selector, and instant 1004 laser.
 
 const BOLT_SCRIPT = preload("res://scripts/star_bolt.gd")
 const IMPACT_SCRIPT = preload("res://scripts/impact_burst.gd")
@@ -16,6 +16,12 @@ const POISON_BALL_SCRIPT = preload("res://scripts/poison_bounce_ball.gd")
 const POISON_PUDDLE_SCRIPT = preload("res://scripts/poison_puddle.gd")
 const FIREBALL_SCRIPT = preload("res://scripts/fireball_vfx.gd")
 const FIREBALL_IMPACT_SCRIPT = preload("res://scripts/fireball_impact_vfx.gd")
+const LASER_SCRIPT = preload("res://scripts/instant_laser_vfx.gd")
+
+# Add any future spell here: the clickable catalog needs no new keyboard shortcut.
+const SPELL_CHOICES := ["별빛탄", "꽃폭탄", "달빛 부메랑", "블랙홀", "가시꽃 덫", "얼음검", "벼락", "독 탱탱볼", "번개 아크", "화염구", "광선"]
+# Only genuinely implemented test motions are selectable.
+const SPELL_TEST_MODES := {9: ["직선 비행", "공전", "급선회"]}
 
 const SCREEN_SIZE := Vector2(1600.0, 900.0)
 const START_POINT := Vector2(200.0, 490.0)
@@ -29,7 +35,7 @@ var fire_clock := 0.2
 var particle_multiplier := 1.0
 var fired_count := 0
 var impact_count := 0
-var selected_spell := 0 # 0..9; 7 is 독 탱탱볼 (keyboard 8), 9 is 화염구 (keyboard 0)
+var selected_spell := 0 # 0..10; controlled by the spell dropdown
 var bloom_rank := 0
 var black_hole_rank := 0
 var black_hole_ticks := 0
@@ -53,10 +59,13 @@ var fireball_rank := 0
 var fireball_impacts := 0
 var fireball_finished := 0
 var fireball_motion := 0 # 0 straight, 1 orbit, 2 curving
+var laser_finished := 0
 
 var title_label: Label
 var info_label: Label
 var status_label: Label
+var spell_picker: OptionButton
+var mode_picker: OptionButton
 
 func _ready() -> void:
 	randomize()
@@ -108,6 +117,11 @@ func _process(delta: float) -> void:
 			get_tree().get_nodes_in_group("vfx_poison_puddle").size(), poison_finished,
 			particle_multiplier, "ON" if autofire else "OFF"
 		]
+	elif selected_spell == 10:
+		status_label.text = "선택 %s | 즉발 직선 / 사거리 %.0fpx / 잔상 %.2f초 | 발사 %d 종료 %d | 광채 %.1fx 자동 %s | 전투 판정·굴절 미구현" % [
+			spell_name, float(LASER_SCRIPT.MAX_RANGE), float(LASER_SCRIPT.VFX_SECONDS),
+			fired_count, laser_finished, particle_multiplier, "ON" if autofire else "OFF"
+		]
 	elif selected_spell == 9:
 		status_label.text = "선택 %s +%d | %s | 폭발 %.0f | 발사 %d  폭발 %d  종료 %d | 불꽃 %.1fx 자동 %s  [F 이동방식]" % [
 			spell_name, fireball_rank, ["직선 비행", "공전", "급선회"][fireball_motion], float(FIREBALL_SCRIPT.RADII[fireball_rank]), fired_count,
@@ -135,10 +149,11 @@ func _auto_interval() -> float:
 		7: return 3.25
 		8: return 1.15
 		9: return 5.20 if fireball_motion == 1 else 2.50
+		10: return 0.94
 	return fire_interval
 
 func shoot(replace_hole: bool = false) -> void:
-	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size()
+	var active_count := get_tree().get_nodes_in_group("vfx_bolt").size() + get_tree().get_nodes_in_group("vfx_bloom").size() + get_tree().get_nodes_in_group("vfx_moon").size() + get_tree().get_nodes_in_group("vfx_hole").size() + get_tree().get_nodes_in_group("vfx_thorn").size() + get_tree().get_nodes_in_group("vfx_ice_sword").size() + get_tree().get_nodes_in_group("vfx_thunder").size() + get_tree().get_nodes_in_group("vfx_poison_ball").size() + get_tree().get_nodes_in_group("vfx_lightning_arc").size() + get_tree().get_nodes_in_group("vfx_fireball").size() + get_tree().get_nodes_in_group("vfx_laser").size()
 	if active_count >= 50:
 		return
 	if selected_spell == 0:
@@ -209,6 +224,13 @@ func shoot(replace_hole: bool = false) -> void:
 		add_child(arc)
 		arc.add_to_group("vfx_lightning_arc")
 		arc.finished.connect(_on_lightning_arc_finished)
+	elif selected_spell == 10:
+		# Magicraft 1004 basic: instant straight beam, no refraction until a later test.
+		var ray = LASER_SCRIPT.new()
+		ray.configure(START_POINT, target_point, particle_multiplier)
+		add_child(ray)
+		ray.add_to_group("vfx_laser")
+		ray.finished.connect(_on_laser_finished)
 	elif selected_spell == 9:
 		if get_tree().get_nodes_in_group("vfx_fireball").size() >= 6:
 			return
@@ -230,6 +252,9 @@ func shoot(replace_hole: bool = false) -> void:
 		trap.triggered.connect(_on_thorn_triggered)
 		trap.vanished.connect(_on_thorn_vanished)
 	fired_count += 1
+
+func _on_laser_finished() -> void:
+	laser_finished += 1
 
 func _on_fireball_impact(point: Vector2, cast_rank: int) -> void:
 	fireball_impacts += 1
@@ -340,6 +365,7 @@ func _spell_name() -> String:
 		7: return "독 탱탱볼"
 		8: return "번개 아크"
 		9: return "화염구"
+		10: return "광선"
 	return "미지의 마법"
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -352,36 +378,30 @@ func _unhandled_input(event: InputEvent) -> void:
 		queue_redraw()
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
+			KEY_PAGEUP:
+				_select_spell(selected_spell - 1)
+			KEY_PAGEDOWN:
+				_select_spell(selected_spell + 1)
 			KEY_1, KEY_KP_1:
-				selected_spell = 0
-				_update_title()
+				_select_spell(0)
 			KEY_2, KEY_KP_2:
-				selected_spell = 1
-				_update_title()
+				_select_spell(1)
 			KEY_3, KEY_KP_3:
-				selected_spell = 2
-				_update_title()
+				_select_spell(2)
 			KEY_4, KEY_KP_4:
-				selected_spell = 3
-				_update_title()
+				_select_spell(3)
 			KEY_5, KEY_KP_5:
-				selected_spell = 4
-				_update_title()
+				_select_spell(4)
 			KEY_6, KEY_KP_6:
-				selected_spell = 5
-				_update_title()
+				_select_spell(5)
 			KEY_7, KEY_KP_7:
-				selected_spell = 6
-				_update_title()
+				_select_spell(6)
 			KEY_8, KEY_KP_8:
-				selected_spell = 7
-				_update_title()
+				_select_spell(7)
 			KEY_9, KEY_KP_9:
-				selected_spell = 8
-				_update_title()
+				_select_spell(8)
 			KEY_0, KEY_KP_0:
-				selected_spell = 9
-				_update_title()
+				_select_spell(9)
 			KEY_Q:
 				if selected_spell == 3:
 					black_hole_rank = maxi(0, black_hole_rank - 1)
@@ -417,9 +437,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				elif selected_spell == 9:
 					fireball_rank = mini(3, fireball_rank + 1)
 			KEY_F:
-				if selected_spell == 9:
-					fireball_motion = (fireball_motion + 1) % 3
-					fire_clock = 0.05
+				_cycle_test_mode()
 			KEY_SPACE:
 				shoot(true)
 			KEY_T:
@@ -431,7 +449,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN, KEY_MINUS, KEY_KP_SUBTRACT:
 				particle_multiplier = maxf(0.0, particle_multiplier - 0.5)
 			KEY_C:
-				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword", "vfx_thunder", "vfx_poison_ball", "vfx_poison_puddle", "vfx_lightning_arc", "vfx_fireball"]:
+				for group_name in ["vfx_bolt", "vfx_bloom", "vfx_moon", "vfx_hole", "vfx_thorn", "vfx_ice_sword", "vfx_thunder", "vfx_poison_ball", "vfx_poison_puddle", "vfx_lightning_arc", "vfx_fireball", "vfx_laser"]:
 					for projectile in get_tree().get_nodes_in_group(group_name):
 						projectile.queue_free()
 				# 이미 생성된 폭발은 자연스럽게 사라진다.
@@ -449,6 +467,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				lightning_arc_finished = 0
 				fireball_impacts = 0
 				fireball_finished = 0
+				laser_finished = 0
 				poison_landings = 0
 				poison_finished = 0
 
@@ -470,6 +489,7 @@ func _draw() -> void:
 		7: aiming_color = Color("a5dc45")
 		8: aiming_color = Color("64aeff")
 		9: aiming_color = Color("ffbf62")
+		10: aiming_color = Color("70dbff")
 	draw_line(START_POINT, target_point, Color(aiming_color, 0.09), 2.0)
 	draw_circle(START_POINT + Vector2(0, 22), 35.0, Color(0, 0, 0, 0.24))
 	draw_circle(START_POINT, 32.0, Color("6d658b"))
@@ -506,7 +526,7 @@ func _create_hud() -> void:
 	_update_title()
 
 	info_label = Label.new()
-	info_label.text = "1 별빛탄  ·  2 꽃폭탄  ·  3 부메랑  ·  4 블랙홀  ·  5 가시꽃  ·  6 서리검  ·  7 벼락  ·  8 독 탱탱볼  ·  9 번개 아크  ·  0 화염구\nQ/E 단계  ·  F 화염구 직선·공전·급선회  ·  T 덫 발동  ·  클릭/SPACE 시전  ·  R 자동  ·  ↑/↓ 입자  ·  C 초기화"
+	info_label.text = "마법 선택: 오른쪽 목록 / PgUp·PgDn 이전·다음 (기존 1~0도 사용 가능)\n클릭·SPACE 발사   R 자동   Q/E 강화   F 실험 방식   T 덫 발동   ↑/↓ 입자   C 초기화"
 	info_label.position = Vector2(36, 57)
 	info_label.add_theme_font_size_override("font_size", 15)
 	info_label.add_theme_color_override("font_color", Color("c9d0e0"))
@@ -517,6 +537,87 @@ func _create_hud() -> void:
 	status_label.add_theme_font_size_override("font_size", 16)
 	status_label.add_theme_color_override("font_color", Color("a8b8d6"))
 	layer.add_child(status_label)
+	_create_spell_controls(layer)
+
+func _create_spell_controls(layer: CanvasLayer) -> void:
+	var name_label := Label.new()
+	name_label.text = "마법 선택"
+	name_label.position = Vector2(880, 17)
+	name_label.add_theme_font_size_override("font_size", 17)
+	layer.add_child(name_label)
+
+	var prev := Button.new()
+	prev.text = "<"
+	prev.position = Vector2(977, 12)
+	prev.size = Vector2(35, 35)
+	prev.pressed.connect(_previous_spell)
+	layer.add_child(prev)
+
+	spell_picker = OptionButton.new()
+	spell_picker.position = Vector2(1018, 12)
+	spell_picker.size = Vector2(278, 35)
+	for i in range(SPELL_CHOICES.size()):
+		spell_picker.add_item(SPELL_CHOICES[i], i)
+	spell_picker.select(selected_spell)
+	spell_picker.item_selected.connect(_select_spell)
+	layer.add_child(spell_picker)
+
+	var next := Button.new()
+	next.text = ">"
+	next.position = Vector2(1304, 12)
+	next.size = Vector2(35, 35)
+	next.pressed.connect(_next_spell)
+	layer.add_child(next)
+
+	var mode_label := Label.new()
+	mode_label.text = "실험 방식"
+	mode_label.position = Vector2(880, 62)
+	mode_label.add_theme_font_size_override("font_size", 17)
+	layer.add_child(mode_label)
+
+	mode_picker = OptionButton.new()
+	mode_picker.position = Vector2(1018, 57)
+	mode_picker.size = Vector2(278, 35)
+	mode_picker.item_selected.connect(_on_test_mode_selected)
+	layer.add_child(mode_picker)
+	_refresh_test_modes()
+
+func _select_spell(index: int) -> void:
+	selected_spell = posmod(index, SPELL_CHOICES.size())
+	if spell_picker != null:
+		spell_picker.select(selected_spell)
+	_refresh_test_modes()
+	_update_title()
+	fire_clock = 0.05
+	queue_redraw()
+
+func _previous_spell() -> void:
+	_select_spell(selected_spell - 1)
+
+func _next_spell() -> void:
+	_select_spell(selected_spell + 1)
+
+func _refresh_test_modes() -> void:
+	if mode_picker == null:
+		return
+	mode_picker.clear()
+	var modes: Array = SPELL_TEST_MODES.get(selected_spell, ["기본"])
+	for i in range(modes.size()):
+		mode_picker.add_item(str(modes[i]), i)
+	mode_picker.disabled = modes.size() <= 1
+	mode_picker.select(fireball_motion if selected_spell == 9 else 0)
+
+func _cycle_test_mode() -> void:
+	if mode_picker == null or mode_picker.item_count < 2:
+		return
+	_on_test_mode_selected((mode_picker.selected + 1) % mode_picker.item_count)
+
+func _on_test_mode_selected(index: int) -> void:
+	# Per-spell extension: future orbit/seek/bounce runners attach here.
+	if selected_spell == 9:
+		fireball_motion = index
+	mode_picker.select(index)
+	fire_clock = 0.05
 
 func _update_title() -> void:
 	title_label.text = "WITCHLINGS / MAGIC VFX LAB     %s" % _spell_name()
